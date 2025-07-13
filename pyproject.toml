@@ -1,0 +1,13 @@
+[project]
+name = "ai-assistant"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "smolagents>=1.19.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.1",
+]
