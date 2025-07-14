@@ -2,7 +2,12 @@ import json
 
 from smolagents import CodeAgent, LiteLLMModel, InferenceClientModel
 
-from ai_assistant.tools import search_steam_profile, query
+from ai_assistant.tools import (
+    search_steam_profile,
+    query,
+    hero_name_to_id,
+    item_name_to_id,
+)
 from ai_assistant.utils import list_clickhouse_tables, schema
 
 model = {
@@ -14,7 +19,7 @@ CONTEXT = {table: schema(table) for table in list_clickhouse_tables()}
 
 agent = CodeAgent(
     model=model,
-    tools=[search_steam_profile, query],
+    tools=[hero_name_to_id, item_name_to_id, search_steam_profile, query],
     instructions=f"Available Clickhouse Tables: {json.dumps(CONTEXT, indent=2)}",
 )
 

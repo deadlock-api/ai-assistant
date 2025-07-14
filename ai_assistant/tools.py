@@ -40,6 +40,29 @@ def hero_name_to_id(hero_name: str) -> int | str:
 
 
 @tool
+def item_name_to_id(item_name: str) -> int | str:
+    """
+    Retrieve the item id by a given item name.
+
+    Args:
+        item_name: The name of the item.
+    """
+    sql = f"""
+    SELECT id
+    FROM items
+    WHERE editDistanceUTF8(lower('{item_name}'), lower(name)) < 2
+    ORDER BY editDistanceUTF8(lower('{item_name}'), lower(name))
+    LIMIT 1
+    """
+    try:
+        return requests.get(
+            "https://api.deadlock-api.com/v1/sql", params={"query": sql}
+        ).json()[0]["id"]
+    except KeyError:
+        return "Item not found"
+
+
+@tool
 def query(sql: str) -> list[dict]:
     """
     Query the Clickhouse DB containing data about deadlock using a SQL query.
