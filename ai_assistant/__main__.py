@@ -31,4 +31,6 @@ agent = CodeAgent(
 )
 
 with agent:
-    agent.run("How many matches with hero wraith has johnpyp ever played?")
+    agent.run(
+        "How many matches with has johnpyp ever played with an average badge bigger than ascendant?"
+    )
