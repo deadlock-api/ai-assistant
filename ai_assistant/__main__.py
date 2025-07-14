@@ -21,7 +21,7 @@ from starlette.status import HTTP_308_PERMANENT_REDIRECT
 
 from ai_assistant.tools import (
     search_steam_profile,
-    query,
+    clickhouse_query,
     hero_name_to_id,
     item_name_to_id,
     rank_to_badge,
@@ -42,7 +42,7 @@ agent = CodeAgent(
         item_name_to_id,
         rank_to_badge,
         search_steam_profile,
-        query,
+        clickhouse_query,
     ],
     instructions=f"Available Clickhouse Tables: {json.dumps(CONTEXT, indent=2)}",
 )

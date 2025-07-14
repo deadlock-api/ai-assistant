@@ -86,9 +86,9 @@ def item_name_to_id(item_name: str) -> int | str:
 
 
 @tool
-def query(sql: str) -> list[dict]:
+def clickhouse_query(sql: str) -> list[dict]:
     """
-    Query the Clickhouse DB containing data about deadlock using a SQL query.
+    Query the Clickhouse DB containing data about deadlock using a SQL query. Results in a list of dict with entries column_name -> value
 
     Args:
         sql: The query to perform. This should be correct Clickhouse SQL.
