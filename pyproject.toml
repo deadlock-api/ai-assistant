@@ -5,6 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
     "smolagents>=1.19.0",
+    "sqlglot[rs]>=27.0.0",
 ]
 
 [dependency-groups]
