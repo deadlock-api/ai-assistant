@@ -1,7 +1,5 @@
 import json
 from typing import Iterable
-
-import uvicorn
 from fastapi import FastAPI
 from scalar_fastapi import get_scalar_api_reference
 from smolagents import (
@@ -18,7 +16,6 @@ from smolagents import (
 from starlette.requests import Request
 from starlette.responses import Response, RedirectResponse, StreamingResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
-
 from ai_assistant.tools import (
     search_steam_profile,
     clickhouse_query,
@@ -29,9 +26,11 @@ from ai_assistant.tools import (
 from ai_assistant.utils import list_clickhouse_tables, schema
 
 model = {
-    "gemini": LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
+    "gemini-flash": LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
+    "gemini-pro": LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
+    "ollama": LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
     "hf": InferenceClientModel(),
-}["gemini"]
+}["gemini-flash"]
 
 CONTEXT = {table: schema(table) for table in list_clickhouse_tables()}
 
@@ -112,4 +111,6 @@ def invoke(prompt: str):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    prompt = input("Prompt: ")
+    with agent:
+        agent.run(prompt)
