@@ -1,6 +1,9 @@
 import json
-from typing import Iterable
-from fastapi import FastAPI
+import asyncio
+import logging
+from typing import Dict, Any, AsyncGenerator
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from scalar_fastapi import get_scalar_api_reference
 from smolagents import (
     CodeAgent,
@@ -10,12 +13,11 @@ from smolagents import (
     PlanningStep,
     ChatMessageStreamDelta,
     FinalAnswerStep,
-    ChatMessage,
     ActionOutput,
 )
-from starlette.requests import Request
-from starlette.responses import Response, RedirectResponse, StreamingResponse
+from starlette.responses import Response, RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
+from starlette.middleware.cors import CORSMiddleware
 from ai_assistant.tools import (
     search_steam_profile,
     clickhouse_query,
@@ -25,62 +27,82 @@ from ai_assistant.tools import (
 )
 from ai_assistant.utils import list_clickhouse_tables, schema
 
-model = {
-    "gemini-flash": LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
-    "gemini-pro": LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
-    "ollama": LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
-    "hf": InferenceClientModel(),
-}["ollama"]
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+MODEL_CONFIGS = {
+    "gemini-flash": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
+    "gemini-pro": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
+    "ollama": lambda: LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
+    "hf": lambda: InferenceClientModel(),
+}
+
+DEFAULT_MODEL = "hf"
 
 
-def format_table(table: str) -> str:
-    columns = "\n".join(
-        [
-            f"{name}: {type}"
-            for name, type in schema(table).items()
-            if not any(
-                name.startswith(x)
-                for x in [
-                    "death_details",
-                    "max_",
-                    "book_reward",
-                    "mid_boss",
-                    "objectives",
-                    "personastate",
-                    "profileurl",
-                    "avatar",
-                ]
-            )
-        ]
-    )
-    return f"## Table: {table}\n{columns}"
+def format_table_schema(table: str) -> str:
+    excluded_prefixes = {
+        "death_details",
+        "max_",
+        "book_reward",
+        "mid_boss",
+        "objectives",
+        "personastate",
+        "profileurl",
+        "avatar",
+    }
+
+    columns = [
+        f"{name}: {type_}"
+        for name, type_ in schema(table).items()
+        if not any(name.startswith(prefix) for prefix in excluded_prefixes)
+    ]
+
+    return f"## Table: {table}\n" + "\n".join(columns)
 
 
-CONTEXT = "\n\n".join(format_table(t) for t in list_clickhouse_tables())
+TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
 
-agent = CodeAgent(
-    model=model,
-    tools=[
-        hero_name_to_id,
-        item_name_to_id,
-        rank_to_badge,
-        search_steam_profile,
-        clickhouse_query,
-    ],
-    instructions=f"Available Clickhouse Tables:\n{CONTEXT}",
+AGENT_TOOLS = [
+    hero_name_to_id,
+    item_name_to_id,
+    rank_to_badge,
+    search_steam_profile,
+    clickhouse_query,
+]
+
+AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}"
+
+
+class AgentManager:
+    def __init__(self, model_name: str = DEFAULT_MODEL):
+        self.model_name = model_name
+
+    def create_agent(self) -> CodeAgent:
+        if self.model_name not in MODEL_CONFIGS:
+            raise ValueError(f"Unknown model: {self.model_name}")
+
+        model = MODEL_CONFIGS[self.model_name]()
+        return CodeAgent(
+            model=model,
+            tools=AGENT_TOOLS,
+            instructions=AGENT_INSTRUCTIONS,
+        )
+
+
+app = FastAPI(
+    title="AI Assistant API",
+    description="AI Assistant with Steam and ClickHouse integration",
+    version="1.0.0",
 )
 
-app = FastAPI()
-
-
-@app.middleware("http")
-async def cors_handler(request: Request, call_next):
-    response: Response = await call_next(request)
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "*"
-    response.headers["Access-Control-Allow-Headers"] = "*"
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/", include_in_schema=False)
@@ -95,46 +117,105 @@ async def scalar_html():
 
 @app.get("/health", include_in_schema=False)
 def get_health():
-    return {"status": "ok"}
+    return {"status": "ok", "model": DEFAULT_MODEL}
 
 
 @app.head("/health", include_in_schema=False)
 def get_health_head():
-    return {"status": "ok"}
+    return Response(status_code=200)
+
+
+class StreamingResponseHandler:
+    @staticmethod
+    def serialize_step(step) -> Dict[str, Any]:
+        if isinstance(step, ActionStep):
+            return {"type": "action", "data": [m.dict() for m in step.to_messages()]}
+        elif isinstance(step, ActionOutput):
+            return {
+                "type": "action_output",
+                "data": step.dict() if hasattr(step, "dict") else str(step),
+            }
+        elif isinstance(step, PlanningStep):
+            return {
+                "type": "planning",
+                "data": [m.dict() for m in step.to_messages()],
+            }
+        elif isinstance(step, ChatMessageStreamDelta):
+            return {"type": "delta", "data": {"content": step.content}}
+        elif isinstance(step, FinalAnswerStep):
+            return {"type": "final_answer", "data": step.output}
+        return None
+
+    @classmethod
+    async def generate_stream(cls, agent: CodeAgent, prompt: str) -> AsyncGenerator[str, None]:
+        try:
+            with agent:
+                for step in agent.run(prompt, stream=True):
+                    serialized = cls.serialize_step(step)
+                    if serialized:
+                        data = json.dumps(serialized)
+                        logger.debug(f"Streaming data: {data}")
+                        yield f"data: {data}\n\n"
+                        await asyncio.sleep(0)
+                    else:
+                        logger.debug(f"Skipping step: {type(step)}")
+        except Exception as e:
+            logger.error(f"Error during agent execution: {e}")
+            error_data = json.dumps({"type": "error", "data": {"message": str(e)}})
+            yield f"data: {error_data}\n\n"
 
 
 @app.get("/invoke")
-def invoke(prompt: str):
-    if not prompt:
-        return "bad request!", 400
+async def invoke(
+    prompt: str = Query(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="The prompt to send to the AI agent",
+    ),
+    model: str = Query(DEFAULT_MODEL, description="Model to use for inference"),
+):
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    def messages_to_json(messages: Iterable[ChatMessage]):
-        return json.dumps([m.dict() for m in messages])
+    if model not in MODEL_CONFIGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
+        )
 
-    def generator():
-        with agent:
-            for step in agent.run(prompt, stream=True):
-                data = None
-                if isinstance(step, ActionStep):
-                    data = messages_to_json(step.to_messages())
-                if isinstance(step, ActionOutput):
-                    data = json.dumps(step)
-                elif isinstance(step, PlanningStep):
-                    data = messages_to_json(step.to_messages())
-                elif isinstance(step, ChatMessageStreamDelta):
-                    data = json.dumps({"delta": step.content})
-                elif isinstance(step, FinalAnswerStep):
-                    data = json.dumps(step.output)
-                if data:
-                    print(f"Sending Data: {data}")
-                    yield f"data: {data}\n\n"
-                else:
-                    print(f"Skipping Data: {step}")
+    try:
+        agent_manager = AgentManager(model)
+        agent = agent_manager.create_agent()
 
-    return StreamingResponse(generator(), media_type="text/event-stream")
+        return StreamingResponse(
+            StreamingResponseHandler.generate_stream(agent, prompt.strip()),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    except Exception as e:
+        logger.error(f"Failed to create agent or start streaming: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/models")
+def list_models():
+    return {"models": list(MODEL_CONFIGS.keys()), "default": DEFAULT_MODEL}
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     prompt = input("Prompt: ")
-    with agent:
-        agent.run(prompt)
+    if prompt.strip():
+        agent_manager = AgentManager()
+        agent = agent_manager.create_agent()
+
+        with agent:
+            agent.run(prompt)
+    else:
+        uvicorn.run(app, host="0.0.0.0", port=8000)
