@@ -3,6 +3,7 @@ from ai_assistant.tools import (
     search_steam_profile,
     item_name_to_id,
     rank_to_badge,
+    clickhouse_query,
 )
 
 
@@ -23,3 +24,7 @@ def test_rank_to_badge():
 
 def test_search_steam_profile():
     assert search_steam_profile("johnpyp") == 127331261
+
+
+def test_clickhouse_query():
+    assert clickhouse_query("SELECT 1") == [{"1": 1}]
