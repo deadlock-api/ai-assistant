@@ -6,7 +6,10 @@ requires-python = ">=3.13"
 dependencies = [
     "python-levenshtein>=0.27.1",
     "smolagents[litellm]>=1.19.0",
-    "sqlglot[rs]>=27.0.0",
+    "sqlglot>=27.0.0",
+    "fastapi>=0.116.1",
+    "scalar-fastapi>=1.2.1",
+    "uvicorn>=0.35.0",
 ]
 
 [dependency-groups]
