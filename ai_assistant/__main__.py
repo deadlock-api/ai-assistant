@@ -7,6 +7,7 @@ from ai_assistant.tools import (
     query,
     hero_name_to_id,
     item_name_to_id,
+    rank_to_badge,
 )
 from ai_assistant.utils import list_clickhouse_tables, schema
 
@@ -19,7 +20,13 @@ CONTEXT = {table: schema(table) for table in list_clickhouse_tables()}
 
 agent = CodeAgent(
     model=model,
-    tools=[hero_name_to_id, item_name_to_id, search_steam_profile, query],
+    tools=[
+        hero_name_to_id,
+        item_name_to_id,
+        rank_to_badge,
+        search_steam_profile,
+        query,
+    ],
     instructions=f"Available Clickhouse Tables: {json.dumps(CONTEXT, indent=2)}",
 )
 
