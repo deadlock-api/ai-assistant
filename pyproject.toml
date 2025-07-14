@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
-    "editdistance>=0.8.1",
+    "python-levenshtein>=0.27.1",
     "smolagents[litellm]>=1.19.0",
     "sqlglot[rs]>=27.0.0",
 ]

@@ -1,4 +1,4 @@
-import editdistance
+import Levenshtein
 import requests
 import sqlglot
 from smolagents import tool
@@ -33,7 +33,7 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
         int | str: Hero ID or "Item not found"
     """
     ranks = requests.get("https://assets.deadlock-api.com/v2/ranks").json()
-    closest_rank = min(ranks, key=lambda rank: editdistance.eval(rank["name"].lower(), rank_name))
+    closest_rank = min(ranks, key=lambda rank: Levenshtein.distance(rank["name"].lower(), rank_name))
     return closest_rank["tier"] * 10 + rank_tier
 
 
