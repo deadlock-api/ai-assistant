@@ -1,7 +1,8 @@
 import json
 import asyncio
 import logging
-from typing import Dict, Any, AsyncGenerator
+import uuid
+from typing import Dict, Any, AsyncGenerator, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from scalar_fastapi import get_scalar_api_reference
@@ -78,6 +79,10 @@ class SessionManager:
     def __init__(self):
         self.sessions: Dict[str, CodeAgent] = {}
         self.locks: Dict[str, asyncio.Lock] = {}
+        self.session_models: Dict[str, str] = {}
+
+    def generate_session_id(self) -> str:
+        return str(uuid.uuid4())
 
     async def get_agent(self, session_id: str, model_name: str = DEFAULT_MODEL) -> CodeAgent:
         if session_id not in self.sessions:
@@ -91,6 +96,7 @@ class SessionManager:
                 instructions=AGENT_INSTRUCTIONS,
             )
             self.locks[session_id] = asyncio.Lock()
+            self.session_models[session_id] = model_name
 
         return self.sessions[session_id]
 
@@ -104,6 +110,14 @@ class SessionManager:
             del self.sessions[session_id]
         if session_id in self.locks:
             del self.locks[session_id]
+        if session_id in self.session_models:
+            del self.session_models[session_id]
+
+    def get_session_info(self) -> Dict[str, Dict[str, Any]]:
+        return {
+            session_id: {"model": self.session_models.get(session_id, "unknown"), "active": session_id in self.sessions}
+            for session_id in self.sessions.keys()
+        }
 
     def list_sessions(self) -> list:
         return list(self.sessions.keys())
@@ -113,7 +127,7 @@ session_manager = SessionManager()
 
 app = FastAPI(
     title="AI Assistant API",
-    description="AI Assistant with Steam and ClickHouse integration",
+    description="AI Assistant with Steam and ClickHouse integration for Discord Bot",
     version="1.0.0",
 )
 
@@ -168,8 +182,11 @@ class StreamingResponseHandler:
         return None
 
     @classmethod
-    async def generate_stream(cls, agent: CodeAgent, prompt: str) -> AsyncGenerator[str, None]:
+    async def generate_stream(cls, agent: CodeAgent, prompt: str, session_id: str) -> AsyncGenerator[str, None]:
         try:
+            session_info = json.dumps({"type": "session_info", "data": {"session_id": session_id}})
+            yield f"data: {session_info}\n\n"
+
             with agent:
                 for step in agent.run(prompt, stream=True):
                     serialized = cls.serialize_step(step)
@@ -186,7 +203,7 @@ class StreamingResponseHandler:
             yield f"data: {error_data}\n\n"
 
 
-@app.get("/invoke")
+@app.post("/invoke")
 async def invoke(
     prompt: str = Query(
         ...,
@@ -194,7 +211,8 @@ async def invoke(
         max_length=10000,
         description="The prompt to send to the AI agent",
     ),
-    session_id: str = Query("default", description="Session ID for conversation context"),
+    user_id: Optional[str] = Query(None, description="Discord user ID or custom identifier"),
+    session_id: Optional[str] = Query(None, description="Override session ID for development"),
     model: str = Query(DEFAULT_MODEL, description="Model to use for inference"),
 ):
     if not prompt or not prompt.strip():
@@ -206,13 +224,15 @@ async def invoke(
             detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
         )
 
+    final_session_id = session_id or user_id or session_manager.generate_session_id()
+
     try:
-        agent = await session_manager.get_agent(session_id, model)
-        lock = await session_manager.get_lock(session_id)
+        agent = await session_manager.get_agent(final_session_id, model)
+        lock = await session_manager.get_lock(final_session_id)
 
         async with lock:
             return StreamingResponse(
-                StreamingResponseHandler.generate_stream(agent, prompt.strip()),
+                StreamingResponseHandler.generate_stream(agent, prompt.strip(), final_session_id),
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",
@@ -233,12 +253,29 @@ async def clear_session(session_id: str):
 
 @app.get("/sessions")
 async def list_sessions():
-    return {"sessions": session_manager.list_sessions()}
+    return {"sessions": session_manager.get_session_info()}
 
 
 @app.get("/models")
 def list_models():
     return {"models": list(MODEL_CONFIGS.keys()), "default": DEFAULT_MODEL}
+
+
+@app.post("/sessions/new")
+async def create_session(
+    user_id: Optional[str] = Query(None, description="Discord user ID or custom identifier"),
+    model: str = Query(DEFAULT_MODEL, description="Model to use for this session"),
+):
+    session_id = user_id or session_manager.generate_session_id()
+
+    if model not in MODEL_CONFIGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
+        )
+
+    await session_manager.get_agent(session_id, model)
+    return {"session_id": session_id, "model": model}
 
 
 if __name__ == "__main__":
@@ -248,12 +285,15 @@ if __name__ == "__main__":
     if prompt.strip():
 
         async def run_agent():
-            agent = await session_manager.get_agent("cli")
-            lock = await session_manager.get_lock("cli")
+            session_id = "cli-" + session_manager.generate_session_id()
+            agent = await session_manager.get_agent(session_id)
+            lock = await session_manager.get_lock(session_id)
 
             async with lock:
                 with agent:
-                    agent.run(prompt)
+                    result = agent.run(prompt)
+                    print(f"Session ID: {session_id}")
+                    return result
 
         asyncio.run(run_agent())
     else:
