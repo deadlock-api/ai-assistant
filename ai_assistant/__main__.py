@@ -74,21 +74,42 @@ AGENT_TOOLS = [
 AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}"
 
 
-class AgentManager:
-    def __init__(self, model_name: str = DEFAULT_MODEL):
-        self.model_name = model_name
+class SessionManager:
+    def __init__(self):
+        self.sessions: Dict[str, CodeAgent] = {}
+        self.locks: Dict[str, asyncio.Lock] = {}
 
-    def create_agent(self) -> CodeAgent:
-        if self.model_name not in MODEL_CONFIGS:
-            raise ValueError(f"Unknown model: {self.model_name}")
+    async def get_agent(self, session_id: str, model_name: str = DEFAULT_MODEL) -> CodeAgent:
+        if session_id not in self.sessions:
+            if model_name not in MODEL_CONFIGS:
+                raise ValueError(f"Unknown model: {model_name}")
 
-        model = MODEL_CONFIGS[self.model_name]()
-        return CodeAgent(
-            model=model,
-            tools=AGENT_TOOLS,
-            instructions=AGENT_INSTRUCTIONS,
-        )
+            model = MODEL_CONFIGS[model_name]()
+            self.sessions[session_id] = CodeAgent(
+                model=model,
+                tools=AGENT_TOOLS,
+                instructions=AGENT_INSTRUCTIONS,
+            )
+            self.locks[session_id] = asyncio.Lock()
 
+        return self.sessions[session_id]
+
+    async def get_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self.locks:
+            self.locks[session_id] = asyncio.Lock()
+        return self.locks[session_id]
+
+    def clear_session(self, session_id: str):
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+        if session_id in self.locks:
+            del self.locks[session_id]
+
+    def list_sessions(self) -> list:
+        return list(self.sessions.keys())
+
+
+session_manager = SessionManager()
 
 app = FastAPI(
     title="AI Assistant API",
@@ -173,6 +194,7 @@ async def invoke(
         max_length=10000,
         description="The prompt to send to the AI agent",
     ),
+    session_id: str = Query("default", description="Session ID for conversation context"),
     model: str = Query(DEFAULT_MODEL, description="Model to use for inference"),
 ):
     if not prompt or not prompt.strip():
@@ -185,21 +207,33 @@ async def invoke(
         )
 
     try:
-        agent_manager = AgentManager(model)
-        agent = agent_manager.create_agent()
+        agent = await session_manager.get_agent(session_id, model)
+        lock = await session_manager.get_lock(session_id)
 
-        return StreamingResponse(
-            StreamingResponseHandler.generate_stream(agent, prompt.strip()),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
+        async with lock:
+            return StreamingResponse(
+                StreamingResponseHandler.generate_stream(agent, prompt.strip()),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
     except Exception as e:
         logger.error(f"Failed to create agent or start streaming: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.delete("/sessions/{session_id}")
+async def clear_session(session_id: str):
+    session_manager.clear_session(session_id)
+    return {"message": f"Session {session_id} cleared"}
+
+
+@app.get("/sessions")
+async def list_sessions():
+    return {"sessions": session_manager.list_sessions()}
 
 
 @app.get("/models")
@@ -212,10 +246,15 @@ if __name__ == "__main__":
 
     prompt = input("Prompt: ")
     if prompt.strip():
-        agent_manager = AgentManager()
-        agent = agent_manager.create_agent()
 
-        with agent:
-            agent.run(prompt)
+        async def run_agent():
+            agent = await session_manager.get_agent("cli")
+            lock = await session_manager.get_lock("cli")
+
+            async with lock:
+                with agent:
+                    agent.run(prompt)
+
+        asyncio.run(run_agent())
     else:
         uvicorn.run(app, host="0.0.0.0", port=8000)
