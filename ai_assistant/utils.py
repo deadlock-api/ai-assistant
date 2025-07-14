@@ -20,7 +20,5 @@ def list_clickhouse_tables() -> list[str]:
 def schema(table: str) -> dict[str, str]:
     return {
         column["name"]: column["type"]
-        for column in requests.get(
-            f"https://api.deadlock-api.com/v1/sql/tables/{table}/schema"
-        ).json()
+        for column in requests.get(f"https://api.deadlock-api.com/v1/sql/tables/{table}/schema").json()
     }

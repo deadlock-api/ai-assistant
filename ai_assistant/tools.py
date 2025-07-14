@@ -15,9 +15,9 @@ def search_steam_profile(name_or_id: str) -> int:
     Returns:
         int: Account ID
     """
-    return requests.get(
-        f"https://api.deadlock-api.com/v1/players/steam-search?search_query={name_or_id}"
-    ).json()[0]["account_id"]
+    return requests.get(f"https://api.deadlock-api.com/v1/players/steam-search?search_query={name_or_id}").json()[0][
+        "account_id"
+    ]
 
 
 @tool
@@ -33,9 +33,7 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
         int | str: Hero ID or "Item not found"
     """
     ranks = requests.get("https://assets.deadlock-api.com/v2/ranks").json()
-    closest_rank = min(
-        ranks, key=lambda rank: editdistance.eval(rank["name"].lower(), rank_name)
-    )
+    closest_rank = min(ranks, key=lambda rank: editdistance.eval(rank["name"].lower(), rank_name))
     return closest_rank["tier"] * 10 + rank_tier
 
 
@@ -58,9 +56,7 @@ def hero_name_to_id(hero_name: str) -> int | str:
     LIMIT 1
     """
     try:
-        return requests.get(
-            "https://api.deadlock-api.com/v1/sql", params={"query": sql}
-        ).json()[0]["id"]
+        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
     except KeyError:
         return "Hero not found"
 
@@ -84,9 +80,7 @@ def item_name_to_id(item_name: str) -> int | str:
     LIMIT 1
     """
     try:
-        return requests.get(
-            "https://api.deadlock-api.com/v1/sql", params={"query": sql}
-        ).json()[0]["id"]
+        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
     except KeyError:
         return "Item not found"
 
@@ -103,9 +97,7 @@ def query(sql: str) -> list[dict]:
         list[dict[str, Any]]: Query Result
     """
     sql = sqlglot.transpile(sql, write="clickhouse")[0]
-    results = requests.get(
-        "https://api.deadlock-api.com/v1/sql", params={"query": sql}
-    ).json()
+    results = requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()
     if len(results) == 0:
         raise Exception("No results found!")
     return results
