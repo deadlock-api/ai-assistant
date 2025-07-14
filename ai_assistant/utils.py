@@ -13,6 +13,7 @@ def list_clickhouse_tables() -> list[str]:
             "player_card",
             "mmr_history",
             "hero_mmr_history",
+            "match_salts",
         ]
     ]
 

@@ -30,9 +30,33 @@ model = {
     "gemini-pro": LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
     "ollama": LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
     "hf": InferenceClientModel(),
-}["gemini-flash"]
+}["ollama"]
 
-CONTEXT = {table: schema(table) for table in list_clickhouse_tables()}
+
+def format_table(table: str) -> str:
+    columns = "\n".join(
+        [
+            f"{name}: {type}"
+            for name, type in schema(table).items()
+            if not any(
+                name.startswith(x)
+                for x in [
+                    "death_details",
+                    "max_",
+                    "book_reward",
+                    "mid_boss",
+                    "objectives",
+                    "personastate",
+                    "profileurl",
+                    "avatar",
+                ]
+            )
+        ]
+    )
+    return f"## Table: {table}\n{columns}"
+
+
+CONTEXT = "\n\n".join(format_table(t) for t in list_clickhouse_tables())
 
 agent = CodeAgent(
     model=model,
@@ -43,7 +67,7 @@ agent = CodeAgent(
         search_steam_profile,
         clickhouse_query,
     ],
-    instructions=f"Available Clickhouse Tables: {json.dumps(CONTEXT, indent=2)}",
+    instructions=f"Available Clickhouse Tables:\n{CONTEXT}",
 )
 
 app = FastAPI()
