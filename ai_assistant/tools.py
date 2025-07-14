@@ -46,6 +46,9 @@ def item_name_to_id(item_name: str) -> int | str:
 
     Args:
         item_name: The name of the item.
+
+    Returns:
+        int | str: Item ID or "Item not found"
     """
     sql = f"""
     SELECT id
@@ -69,6 +72,9 @@ def query(sql: str) -> list[dict]:
 
     Args:
         sql: The query to perform. This should be correct Clickhouse SQL.
+
+    Returns:
+        list[dict[str, Any]]: Query Result
     """
     sql = sqlglot.transpile(sql, write="clickhouse")[0]
     results = requests.get(
