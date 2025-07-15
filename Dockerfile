@@ -24,4 +24,4 @@ COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
   uv sync --frozen --no-dev
 
-CMD ["uv", "run", "--no-dev", "uvicorn", "ai_assistant.__main__:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uv", "run", "--no-dev", "uvicorn", "ai_assistant.api:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -10,6 +10,8 @@ dependencies = [
     "fastapi>=0.116.1",
     "scalar-fastapi>=1.2.1",
     "uvicorn>=0.35.0",
+    "redis>=6.2.0",
+    "uuid>=1.30",
 ]
 
 [dependency-groups]

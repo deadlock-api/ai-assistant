@@ -101,3 +101,12 @@ def clickhouse_query(sql: str) -> list[dict]:
     if len(results) == 0:
         raise Exception("No results found!")
     return results
+
+
+ALL_TOOLS = [
+    hero_name_to_id,
+    item_name_to_id,
+    rank_to_badge,
+    search_steam_profile,
+    clickhouse_query,
+]

@@ -1,0 +1,159 @@
+import json
+import logging
+from typing import Dict, Any, Generator
+from uuid import UUID
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from scalar_fastapi import get_scalar_api_reference
+from smolagents import (
+    CodeAgent,
+    ActionStep,
+    PlanningStep,
+    ChatMessageStreamDelta,
+    FinalAnswerStep,
+    ActionOutput,
+    ApiModel,
+)
+from starlette.responses import Response, RedirectResponse
+from starlette.status import HTTP_308_PERMANENT_REDIRECT
+from starlette.middleware.cors import CORSMiddleware
+
+from ai_assistant.configs import MODEL_CONFIGS, DEFAULT_MODEL, AGENT_INSTRUCTIONS, get_default_model, get_message_store
+from ai_assistant.tools import ALL_TOOLS
+
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
+MESSAGE_STORE = get_message_store()
+
+app = FastAPI(
+    title="AI Assistant API",
+    description="AI Assistant with Steam and ClickHouse integration for Discord Bot",
+    version="1.0.0",
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/", include_in_schema=False)
+def redirect_to_docs():
+    return RedirectResponse("/scalar", HTTP_308_PERMANENT_REDIRECT)
+
+
+@app.get("/scalar", include_in_schema=False)
+async def scalar_html():
+    return get_scalar_api_reference(openapi_url=app.openapi_url, title=app.title, scalar_theme="default")
+
+
+@app.get("/health", include_in_schema=False)
+def get_health():
+    return {"status": "ok", "model": DEFAULT_MODEL}
+
+
+@app.head("/health", include_in_schema=False)
+def get_health_head():
+    return Response(status_code=200)
+
+
+@app.get("/models")
+def list_models():
+    return {"models": list(MODEL_CONFIGS.keys()), "default": DEFAULT_MODEL}
+
+
+class StreamingResponseHandler:
+    @staticmethod
+    def serialize_step(step) -> Dict[str, Any] | None:
+        if isinstance(step, ActionStep):
+            return {"type": "action", "data": [m.dict() for m in step.to_messages()]}
+        elif isinstance(step, ActionOutput):
+            return {
+                "type": "action_output",
+                "data": step.dict() if hasattr(step, "dict") else str(step),
+            }
+        elif isinstance(step, PlanningStep):
+            return {
+                "type": "planning",
+                "data": [m.dict() for m in step.to_messages()],
+            }
+        elif isinstance(step, ChatMessageStreamDelta):
+            return {"type": "delta", "data": {"content": step.content}}
+        elif isinstance(step, FinalAnswerStep):
+            return {"type": "final_answer", "data": step.output}
+        return None
+
+    @classmethod
+    def generate_stream(
+        cls,
+        prompt: str,
+        model: ApiModel = get_default_model(),
+        memory_id: UUID | None = None,
+    ) -> Generator[str, None]:
+        try:
+            agent = CodeAgent(
+                model=model,
+                tools=ALL_TOOLS,
+                instructions=AGENT_INSTRUCTIONS,
+            )
+            if memory_id:
+                agent.memory = MESSAGE_STORE.get_memory(memory_id)
+            with agent:
+                for step in agent.run(prompt, stream=True):
+                    serialized = cls.serialize_step(step)
+                    if serialized:
+                        data = json.dumps(serialized)
+                        LOGGER.debug(f"Streaming data: {data}")
+                        yield f"data: {data}\n\n"
+                    else:
+                        LOGGER.debug(f"Skipping step: {type(step)}")
+            memory_id = MESSAGE_STORE.save_memory(agent.memory)
+            yield f"data: {json.dumps({'type': 'memory_id', 'data': str(memory_id)})}\n\n"
+        except Exception as e:
+            LOGGER.error(f"Error during agent execution: {e}")
+            error_data = json.dumps({"type": "error", "data": {"message": str(e)}})
+            yield f"data: {error_data}\n\n"
+
+
+@app.get("/invoke")
+async def invoke(
+    prompt: str = Query(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="The prompt to send to the AI agent",
+    ),
+    memory_id: UUID | None = Query(None),
+    model: str = Query(DEFAULT_MODEL, description="Model to use for inference"),
+):
+    if not prompt or not prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+
+    if model not in MODEL_CONFIGS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
+        )
+
+    try:
+        model = MODEL_CONFIGS[model]()
+        return StreamingResponse(
+            StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+    except Exception as e:
+        LOGGER.error(f"Failed to create agent or start streaming: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
