@@ -21,21 +21,18 @@ MODEL_CONFIGS = {
 
 
 def get_model() -> ApiModel:
-    selected_model = None
     if model := os.environ.get("MODEL"):
         if model in MODEL_CONFIGS:
-            selected_model = model
-        else:
-            raise ValueError(f"Invalid model: {model}")
+            return MODEL_CONFIGS[model]()
+
     if "GEMINI_API_KEY" in os.environ:
         LOGGER.info("Using Google Gemini Flash Model")
-        selected_model = "gemini-flash"
-    if "HF_TOKEN" in os.environ:
+        return MODEL_CONFIGS["gemini-flash"]()
+    elif "HF_TOKEN" in os.environ:
         LOGGER.info("Using Hugging Face Inference API")
-        selected_model = "hf"
-
-    selected_model = selected_model or "ollama"  # use ollama as a fallback
-    return MODEL_CONFIGS[selected_model]()
+        return MODEL_CONFIGS["hf"]()
+    else:
+        raise ValueError(f"Invalid model: {model}")
 
 
 def get_message_store() -> MessageStore:

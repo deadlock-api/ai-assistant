@@ -86,7 +86,7 @@ class StreamingResponseHandler:
     def generate_stream(
         cls,
         prompt: str,
-        model: ApiModel = get_model(),
+        model: ApiModel,
         memory_id: UUID | None = None,
     ) -> Generator[str, None]:
         try:
@@ -96,7 +96,8 @@ class StreamingResponseHandler:
                 instructions=AGENT_INSTRUCTIONS,
             )
             if memory_id:
-                agent.memory = MESSAGE_STORE.get_memory(memory_id)
+                if memory := MESSAGE_STORE.get_memory(memory_id):
+                    agent.memory = memory
             with agent:
                 for step in agent.run(prompt, stream=True):
                     serialized = cls.serialize_step(step)
@@ -123,19 +124,19 @@ async def invoke(
         description="The prompt to send to the AI agent",
     ),
     memory_id: UUID | None = Query(None),
-    model: str = Query(get_model(), description="Model to use for inference"),
+    model: str | None = Query(None, description="Model to use for inference"),
 ):
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    if model not in MODEL_CONFIGS:
+    if model is not None and model not in MODEL_CONFIGS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
         )
+    model = MODEL_CONFIGS[model]() if model else get_model()
 
     try:
-        model = MODEL_CONFIGS[model]()
         return StreamingResponse(
             StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id),
             media_type="text/event-stream",

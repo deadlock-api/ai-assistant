@@ -19,9 +19,12 @@ class MessageStore(ABC):
         LOGGER.info(f"Saved memory with ID {memory_id}")
         return memory_id
 
-    def get_memory(self, memory_id: UUID) -> AgentMemory:
+    def get_memory(self, memory_id: UUID) -> AgentMemory | None:
         LOGGER.debug(f"Retrieving memory with ID {memory_id}")
         memory = self._get_memory(memory_id)
+        if memory is None:
+            LOGGER.error(f"Failed to retrieve memory with ID {memory_id}")
+            return None
         LOGGER.info(f"Retrieved memory with ID {memory_id}")
         return memory
 
@@ -42,8 +45,8 @@ class MemoryMessageStore(MessageStore):
         self.memory[memory_id] = memory
         return memory_id
 
-    def _get_memory(self, memory_id: UUID) -> AgentMemory:
-        return self.memory[memory_id]
+    def _get_memory(self, memory_id: UUID) -> AgentMemory | None:
+        return self.memory.get(memory_id)
 
 
 class RedisMessageStore(MessageStore):
@@ -63,5 +66,8 @@ class RedisMessageStore(MessageStore):
         self.conn.set(str(memory_id), pickle.dumps(memory), ex=self.expire)
         return memory_id
 
-    def _get_memory(self, memory_id: UUID) -> AgentMemory:
-        return pickle.loads(self.conn.get(str(memory_id)))
+    def _get_memory(self, memory_id: UUID) -> AgentMemory | None:
+        try:
+            return pickle.loads(self.conn.get(str(memory_id)))
+        except TypeError:
+            return None
