@@ -113,8 +113,7 @@ class StreamingResponseHandler:
             yield f"event: memoryId\ndata: {memory_id}\n\n"
         except Exception as e:
             LOGGER.error(f"Error during agent execution: {e}")
-            error_data = json.dumps({"type": "error", "data": {"message": str(e)}})
-            yield f"event: error\ndata: {error_data}\n\n"
+            yield f"event: error\ndata: {e}\n\n"
 
 
 @app.get("/replay")
