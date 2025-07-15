@@ -1,6 +1,6 @@
 # Deadlock AI-Assistant
 
-A comprehensive AI assistant for analyzing Deadlock game data using advanced language models and database querying capabilities. Optimized for Discord bot integration with session-based conversation management and concurrent user support.
+A comprehensive AI assistant for analyzing Deadlock game data using advanced language models and ClickHouse database querying capabilities. Optimized for Discord bot integration with memory-based conversation management and concurrent user support.
 
 ## Prerequisites
 
@@ -29,11 +29,17 @@ Clone the repository and navigate to the project root directory. The project str
 ```
 ai-assistant/
 ├── ai_assistant/          # Main package directory
-│   ├── __main__.py       # Application entry point
+│   ├── tests/            # Test suite
+│   ├── api.py            # FastAPI web service
+│   ├── cli.py            # Command-line interface
+│   ├── configs.py        # Configuration management
+│   ├── message_store.py  # Memory persistence layer
 │   ├── tools.py          # Custom tools and functions
 │   └── utils.py          # Utility functions
-├── pyproject.toml        # Project configuration
-└── README.md            # This file
+├── docker-compose.yaml   # Docker orchestration
+├── Dockerfile           # Container configuration
+├── pyproject.toml       # Project configuration
+└── README.md           # This file
 ```
 
 ### Step 2: Dependency Installation
@@ -51,7 +57,7 @@ This command creates a virtual environment and installs all packages specified i
 Install the pre-commit hook to ensure code quality standards:
 
 ```bash
-pre-commit install
+uv run pre-commit install
 ```
 
 ## Model Configuration
@@ -63,7 +69,7 @@ The application supports multiple language model providers with runtime selectio
 The application includes support for the following model providers:
 
 - **Hugging Face Inference API** (Default - Recommended for new users)
-- **Google Gemini Models** (Requires Google Cloud credentials)
+- **Google Gemini Models** (Multiple variants: Flash, Flash-Lite, Pro)
 - **Ollama Local Models** (Requires local Ollama installation)
 
 ### Hugging Face Setup (Default Configuration)
@@ -78,18 +84,12 @@ Navigate to your Hugging Face account settings at https://huggingface.co/setting
 
 Configure your Hugging Face token using one of the following methods:
 
-**Windows System Environment Variables (Permanent)**
-
-1. Open System Properties through Control Panel
-2. Navigate to Advanced system settings
-3. Select Environment Variables
-4. Add a new user variable named `HF_TOKEN` with your token value
-
-**Project-Specific Configuration**
+**Project-Specific Configuration (Recommended)**
 Create a `.env` file in the project root directory with the following content:
 
-```
+```env
 HF_TOKEN=your_token_here
+MODEL=hf
 ```
 
 **Session-Based Configuration (Temporary)**
@@ -99,188 +99,209 @@ Execute the following command in PowerShell before running the application:
 $env:HF_TOKEN="your_token_here"
 ```
 
+### Google Gemini Setup
+
+For Google Gemini models, obtain an API key from Google AI Studio and configure it:
+
+```env
+GEMINI_API_KEY=your_api_key_here
+MODEL=gemini-flash
+```
+
+Available Gemini models:
+
+- `gemini-flash-lite` - Fastest, most efficient
+- `gemini-flash` - Balanced performance
+- `gemini-pro` - Highest capability
+
+### Ollama Local Setup
+
+For local model inference, install Ollama and configure:
+
+```env
+MODEL=ollama
+```
+
 ## Application Execution
 
-### Console Mode
+### Command Line Interface
 
 Execute the application in interactive console mode from the project root directory:
 
 ```bash
-uv run python -m ai_assistant
+uv run python -m ai_assistant.cli
 ```
 
-**Important**: Always run this command from the project root directory, not from within the `ai_assistant` subdirectory. The application requires proper Python module path resolution to locate package imports correctly.
+This provides a simple command-line interface for testing queries directly.
 
 ### Web Service Mode
 
-Launch the application as a web service using Uvicorn:
+Launch the application as a web service using the API module:
 
 ```bash
-uv run uvicorn ai_assistant.__main__:app --reload
+uv run python -m ai_assistant.api
 ```
 
 The web service provides API endpoints accessible at http://localhost:8000, with interactive documentation available at http://localhost:8000/scalar.
 
+### Docker Deployment
+
+For production deployment, use Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+This includes Redis for persistent memory storage and proper container orchestration.
+
 ## API Usage
 
-The web service provides session-based conversation management with support for multiple concurrent users, making it ideal for Discord bot integration.
+The web service provides memory-based conversation management with support for multiple concurrent users, making it ideal for Discord bot integration.
+
+### Authentication
+
+If the `API_KEYS` environment variable is set, all requests require authentication:
+
+```env
+API_KEYS=your-api-key-1,your-api-key-2
+```
+
+Include the API key in requests:
+
+```bash
+POST /invoke?api_key=your-api-key&prompt=your-query
+```
 
 ### Core Endpoints
 
-#### **POST /invoke** - Main Conversation Interface
+#### **GET /invoke** - Main Conversation Interface
 
-Submit prompts to the AI assistant with automatic session management.
+Submit prompts to the AI assistant with automatic memory management.
 
 **Parameters:**
 
 - `prompt` (required): The question or command to send to the AI assistant (1-10000 characters)
-- `user_id` (optional): Discord user ID or custom identifier for automatic session isolation
-- `session_id` (optional): Override session ID for development and testing purposes
-- `model` (optional): Model to use for inference (default: "hf")
+- `memory_id` (optional): UUID for conversation continuity
+- `model` (optional): Model to use for inference (default: configured model)
+- `api_key` (optional): Authentication key if required
 
 **Usage Examples:**
 
-**Discord Bot Integration:**
+**Basic Query:**
 
 ```bash
-POST /invoke?user_id=discord_123456789&prompt=analyze my steam profile&model=gemini-pro
+GET /invoke?prompt=How many heroes are available in Deadlock?
 ```
 
-**Development Testing:**
+**Continuing Conversation:**
 
 ```bash
-POST /invoke?session_id=test-session&prompt=what deadlock heroes are available?
+GET /invoke?memory_id=d450bc53-9b2c-42af-bd29-5ba0ce57184c&prompt=Tell me more about the strongest ones
 ```
 
-**Anonymous Usage:**
+**Model Selection:**
 
 ```bash
-POST /invoke?prompt=query the database for match statistics
+GET /invoke?prompt=Analyze johnpyp's match performance&model=gemini-pro
 ```
 
-#### **GET /models** - Available Models
+#### **GET /replay** - Demo Response
 
-List all available language models and the current default.
-
-**Response:**
-
-```json
-{
-  "models": ["hf", "gemini-flash", "gemini-pro", "ollama"],
-  "default": "hf"
-}
-```
-
-### Session Management
-
-#### **POST /sessions/new** - Create New Session
-
-Pre-create a session with a specific model configuration.
+Provides a sample streaming response for testing and demonstration purposes.
 
 **Parameters:**
 
-- `user_id` (optional): Discord user ID or custom identifier
-- `model` (optional): Model to use for this session (default: "hf")
+- `prompt` (required): Prompt text (for compatibility)
+- `memory_id` (optional): Memory ID (for compatibility)
+- `model` (optional): Model selection (for compatibility)
+- `sleep_time` (optional): Delay between response chunks in seconds
 
-**Response:**
+#### **GET /scalar** - Interactive Documentation
 
-```json
-{
-  "session_id": "uuid-or-user-id",
-  "model": "hf"
-}
-```
-
-#### **GET /sessions** - List Active Sessions
-
-View all currently active conversation sessions.
-
-**Response:**
-
-```json
-{
-  "sessions": {
-    "discord_123456789": {
-      "model": "gemini-pro",
-      "active": true
-    },
-    "test-session": {
-      "model": "hf",
-      "active": true
-    }
-  }
-}
-```
-
-#### **DELETE /sessions/{session_id}** - Clear Session
-
-Remove a specific conversation session and its context.
-
-**Response:**
-
-```json
-{
-  "message": "Session {session_id} cleared"
-}
-```
-
-### Utility Endpoints
-
-- **GET /health** - Service health verification
-- **GET /scalar** - Interactive API documentation
-- **GET /** - Redirect to documentation
+Access comprehensive API documentation with interactive testing capabilities.
 
 ### Response Format
 
-All streaming responses follow a structured format for reliable parsing:
+All streaming responses follow a structured Server-Sent Events format:
 
-```json
-{
-  "type": "session_info|action|planning|delta|final_answer|error",
-  "data": {}
-}
+```
+event: agentStep
+data: {"type": "action|planning|delta|final_answer|error", "data": {...}}
+
+event: memoryId
+data: uuid-string
 ```
 
 **Response Types:**
 
-- `session_info`: Contains the session ID being used
 - `action`: Tool execution and function calls
 - `planning`: AI reasoning and decision-making steps
 - `delta`: Incremental response content
 - `final_answer`: Complete response data
 - `error`: Error messages and troubleshooting information
 
-### Discord Bot Integration
+### Memory Management
 
-The API is specifically optimized for Discord bot usage with automatic user isolation:
+The system automatically manages conversation memory:
 
-```python
-import asyncio
-import aiohttp
-
-async def handle_discord_message(user_id: str, message: str):
-    async with aiohttp.ClientSession() as session:
-        async with session.post(
-            'http://localhost:8000/invoke',
-            params={
-                'user_id': user_id,           # Automatic session per Discord user
-                'prompt': message,
-                'model': 'gemini-pro'         # Optional model selection
-            }
-        ) as response:
-            async for line in response.content:
-                if line.startswith(b'data: '):
-                    data = json.loads(line[6:])
-                    if data['type'] == 'final_answer':
-                        return data['data']
-```
+- Each conversation receives a unique memory ID upon completion
+- Memory IDs can be reused to continue conversations
+- Redis storage provides persistence across restarts
+- In-memory fallback when Redis is unavailable
 
 **Key Benefits for Discord Bots:**
 
-- Each Discord user maintains separate conversation context
-- Multiple users can chat simultaneously without interference
-- Automatic session management eliminates manual session handling
+- Persistent conversation memory across bot restarts
+- Individual memory management per Discord user
 - Graceful error handling prevents bot crashes
+- Multiple model selection for different use cases
+
+## Environment Configuration
+
+### Required Environment Variables
+
+Create a `.env` file with the following configuration:
+
+```env
+# Model Configuration (choose one)
+HF_TOKEN=your_huggingface_token
+# OR
+GEMINI_API_KEY=your_gemini_api_key
+
+# Optional: Force specific model
+MODEL=hf
+
+# Optional: API Authentication
+API_KEYS=your-api-key-1,your-api-key-2
+
+# Optional: Redis Configuration
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your_redis_password
+```
+
+### Model Selection Priority
+
+The application selects models in the following order:
+
+1. `MODEL` environment variable (if set)
+2. Google Gemini (if `GEMINI_API_KEY` is available)
+3. Hugging Face (if `HF_TOKEN` is available)
+4. Error if no valid configuration found
+
+## Testing
+
+Run the test suite to ensure proper functionality:
+
+```bash
+uv run pytest ai_assistant/tests/
+```
+
+Tests cover:
+
+- Tool functionality and API integration
+- Message store operations (both Redis and in-memory)
+- Core application logic
 
 ## Common Troubleshooting
 
@@ -294,28 +315,56 @@ Import errors typically indicate execution from an incorrect directory. Ensure a
 
 ### Model Connection Failures
 
-Connection errors usually result from missing or incorrect API credentials. Verify that your environment variables are properly configured and that your chosen model provider credentials are valid. Check available models using the `/models` endpoint.
+Connection errors usually result from missing or incorrect API credentials. Verify that your environment variables are properly configured and that your chosen model provider credentials are valid.
 
-### Session Management Issues
+### Memory Persistence Issues
 
-If sessions behave unexpectedly, use the `/sessions` endpoint to view active sessions and `/sessions/{session_id}` DELETE endpoint to clear problematic sessions.
+If conversations aren't persisting:
 
-### App Execution Alias Conflicts
+- Check Redis connectivity if using Redis storage
+- Verify memory IDs are being returned and stored properly
+- Monitor logs for memory storage errors
 
-Windows may redirect Python commands to the Microsoft Store. Disable these redirects by navigating to Settings → Apps → Advanced app settings → App execution aliases and disabling the toggles for "python.exe" and "python3.exe".
+### API Authentication Errors
+
+If receiving 401 Unauthorized errors:
+
+- Ensure `API_KEYS` environment variable matches request parameter
+- Verify API key format and validity
+- Check that authentication is required (API_KEYS is set)
+
+### Docker Deployment Issues
+
+For container-related problems:
+
+- Ensure Docker and Docker Compose are installed
+- Verify environment variables are passed to containers
+- Check container logs for specific error messages
 
 ## Architecture Overview
 
-The application uses a session-based architecture that provides:
+The application uses a memory-based architecture that provides:
 
-- **Concurrency Safety**: Multiple users can interact simultaneously without context pollution
-- **Memory Management**: Sessions can be individually created and destroyed
-- **Model Flexibility**: Runtime model selection per session
-- **Discord Optimization**: Automatic user isolation using Discord user IDs
-- **Development Support**: Manual session override for testing and debugging
+- **Memory Persistence**: Conversations maintain context across requests
+- **Concurrency Safety**: Multiple users can interact simultaneously
+- **Storage Flexibility**: Redis or in-memory storage options
+- **Model Agnostic**: Runtime model selection and switching
+- **Production Ready**: Docker deployment with proper orchestration
+- **Development Friendly**: Local testing with replay functionality
 
 ## Development Guidelines
 
 Maintain code quality by ensuring pre-commit hooks execute successfully before committing changes. The hooks perform automated formatting, linting, and testing to maintain consistency across the codebase.
 
 For additional development resources and advanced configuration options, consult the project documentation and dependency specifications within `pyproject.toml`.
+
+## API Reference Summary
+
+| Endpoint  | Method | Description                    |
+| --------- | ------ | ------------------------------ |
+| `/invoke` | GET    | Main AI conversation interface |
+| `/replay` | GET    | Demo streaming response        |
+| `/scalar` | GET    | Interactive API documentation  |
+| `/`       | GET    | Redirect to documentation      |
+
+All endpoints support CORS and return Server-Sent Events for real-time streaming responses.
