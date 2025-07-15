@@ -1,5 +1,16 @@
 FROM python:3.13-alpine
 
+# Install system dependencies needed for rustup and building native extensions.
+# 'curl' is for downloading rustup, and 'build-base' provides C compilers, etc.
+RUN apk add --no-cache curl build-base
+
+# Install the Rust toolchain using rustup
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+# Add the Rust compiler (cargo) to the system's PATH.
+# This makes 'rustc' available to subsequent RUN commands.
+ENV PATH="/root/.cargo/bin:${PATH}"
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Enable uv optimizations:
