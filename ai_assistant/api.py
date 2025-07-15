@@ -20,7 +20,7 @@ from starlette.responses import Response, RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
-from ai_assistant.configs import MODEL_CONFIGS, DEFAULT_MODEL, AGENT_INSTRUCTIONS, get_default_model, get_message_store
+from ai_assistant.configs import MODEL_CONFIGS, AGENT_INSTRUCTIONS, get_model, get_message_store
 from ai_assistant.tools import ALL_TOOLS
 
 logging.basicConfig(level=logging.INFO)
@@ -53,17 +53,12 @@ async def scalar_html():
 
 @app.get("/health", include_in_schema=False)
 def get_health():
-    return {"status": "ok", "model": DEFAULT_MODEL}
+    return {"status": "ok"}
 
 
 @app.head("/health", include_in_schema=False)
 def get_health_head():
     return Response(status_code=200)
-
-
-@app.get("/models")
-def list_models():
-    return {"models": list(MODEL_CONFIGS.keys()), "default": DEFAULT_MODEL}
 
 
 class StreamingResponseHandler:
@@ -91,7 +86,7 @@ class StreamingResponseHandler:
     def generate_stream(
         cls,
         prompt: str,
-        model: ApiModel = get_default_model(),
+        model: ApiModel = get_model(),
         memory_id: UUID | None = None,
     ) -> Generator[str, None]:
         try:
@@ -128,7 +123,7 @@ async def invoke(
         description="The prompt to send to the AI agent",
     ),
     memory_id: UUID | None = Query(None),
-    model: str = Query(DEFAULT_MODEL, description="Model to use for inference"),
+    model: str = Query(get_model(), description="Model to use for inference"),
 ):
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
