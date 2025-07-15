@@ -63,6 +63,35 @@ def get_health_head():
     return Response(status_code=200)
 
 
+@app.get("/replay")
+async def replay(
+    prompt: str = Query(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="The prompt to send to the AI agent",
+    ),
+    memory_id: UUID | None = Query(None),
+    model: str | None = Query(None, description="Model to use for inference"),
+    sleep_time: int | None = Query(None, description="Sleep time in seconds between messages"),
+):
+    async def generator():
+        for line in REPLAY:
+            yield line
+            if sleep_time:
+                await asyncio.sleep(sleep_time)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 class StreamingResponseHandler:
     @staticmethod
     def serialize_step(step) -> Dict[str, Any] | None:
@@ -114,35 +143,7 @@ class StreamingResponseHandler:
         except Exception as e:
             LOGGER.error(f"Error during agent execution: {e}")
             yield f"event: error\ndata: {e}\n\n"
-
-
-@app.get("/replay")
-async def replay(
-    prompt: str = Query(
-        ...,
-        min_length=1,
-        max_length=10000,
-        description="The prompt to send to the AI agent",
-    ),
-    memory_id: UUID | None = Query(None),
-    model: str | None = Query(None, description="Model to use for inference"),
-    sleep_time: int | None = Query(None, description="Sleep time in seconds between messages"),
-):
-    async def generator():
-        for line in REPLAY:
-            yield line
-            if sleep_time:
-                await asyncio.sleep(sleep_time)
-
-    return StreamingResponse(
-        generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
+        yield "FINISHED"
 
 
 @app.get("/invoke")
@@ -173,8 +174,16 @@ async def invoke(
 
     try:
         stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
+
+        async def async_stream():
+            while True:
+                item = await asyncio.to_thread(next, stream)
+                if item == "FINISHED":
+                    break
+                yield item
+
         return StreamingResponse(
-            stream,
+            async_stream(),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
