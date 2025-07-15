@@ -110,7 +110,7 @@ class StreamingResponseHandler:
                     else:
                         LOGGER.debug(f"Skipping step: {type(step)}")
             memory_id = MESSAGE_STORE.save_memory(agent.memory)
-            yield f"event: memoryId\ndata: {json.dumps({'type': 'memory_id', 'data': str(memory_id)})}\n\n"
+            yield f"event: memoryId\ndata: {memory_id}\n\n"
         except Exception as e:
             LOGGER.error(f"Error during agent execution: {e}")
             error_data = json.dumps({"type": "error", "data": {"message": str(e)}})

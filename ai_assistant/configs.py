@@ -29,7 +29,7 @@ REPLAY = [
     'event: agentStep\ndata: {"type": "action_output", "data": "ActionOutput(output=\'95\', is_final_answer=True)"}\n\n',
     'event: agentStep\ndata: {"type": "action", "data": [{"role": "assistant", "content": [{"type": "text", "text": "Thought: I have successfully retrieved the count of matches. I will extract the value and provide the final answer.\\n<code>\\nmatch_count = result[0][\'COUNTDistinct(match_id)\']\\nfinal_answer(match_count)\\n</code>"}], "tool_calls": null, "raw": null, "token_usage": null}, {"role": "tool-call", "content": [{"type": "text", "text": "Calling tools:\\n[{\'id\': \'call_4\', \'type\': \'function\', \'function\': {\'name\': \'python_interpreter\', \'arguments\': \\"match_count = result[0][\'COUNTDistinct(match_id)\']\\\\nfinal_answer(match_count)\\"}}]"}], "tool_calls": null, "raw": null, "token_usage": null}, {"role": "tool-response", "content": [{"type": "text", "text": "Observation:\\nExecution logs:\\nLast output from code snippet:\\n95"}], "tool_calls": null, "raw": null, "token_usage": null}]}\n\n',
     'event: agentStep\ndata: {"type": "final_answer", "data": "95"}\n\n',
-    'event: memoryId\ndata: {"type": "memory_id", "data": "d450bc53-9b2c-42af-bd29-5ba0ce57184c"}\n\n',
+    "event: memoryId\ndata: d450bc53-9b2c-42af-bd29-5ba0ce57184c\n\n",
 ]
 
 
