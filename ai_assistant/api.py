@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from typing import Dict, Any, Generator
@@ -20,7 +21,7 @@ from starlette.responses import Response, RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
-from ai_assistant.configs import MODEL_CONFIGS, AGENT_INSTRUCTIONS, get_model, get_message_store
+from ai_assistant.configs import MODEL_CONFIGS, AGENT_INSTRUCTIONS, get_model, get_message_store, REPLAY
 from ai_assistant.tools import ALL_TOOLS
 
 logging.basicConfig(level=logging.INFO)
@@ -115,6 +116,35 @@ class StreamingResponseHandler:
             yield f"data: {error_data}\n\n"
 
 
+@app.get("/replay")
+async def replay(
+    prompt: str = Query(
+        ...,
+        min_length=1,
+        max_length=10000,
+        description="The prompt to send to the AI agent",
+    ),
+    memory_id: UUID | None = Query(None),
+    model: str | None = Query(None, description="Model to use for inference"),
+    sleep_time: int | None = Query(None, description="Sleep time in seconds between messages"),
+):
+    async def generator():
+        for line in REPLAY:
+            yield line
+            if sleep_time:
+                await asyncio.sleep(sleep_time)
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/invoke")
 async def invoke(
     prompt: str = Query(
@@ -137,8 +167,9 @@ async def invoke(
     model = MODEL_CONFIGS[model]() if model else get_model()
 
     try:
+        stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
         return StreamingResponse(
-            StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id),
+            stream,
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
