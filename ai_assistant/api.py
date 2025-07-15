@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any, Generator
 from uuid import UUID
 
@@ -155,7 +156,12 @@ async def invoke(
     ),
     memory_id: UUID | None = Query(None),
     model: str | None = Query(None, description="Model to use for inference"),
+    api_key: UUID | None = Query(None, description="API-Key"),
 ):
+    if valid_api_keys := os.environ.get("API_KEYS"):
+        if valid_api_keys and str(api_key) not in valid_api_keys.split(","):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
