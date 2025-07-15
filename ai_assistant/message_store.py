@@ -52,9 +52,10 @@ class RedisMessageStore(MessageStore):
 
     HOST: ClassVar[str] = os.environ.get("REDIS_HOST", "localhost")
     PORT: ClassVar[int] = os.environ.get("REDIS_PORT", 6379)
+    PASS: ClassVar[str | None] = os.environ.get("REDIS_PASSWORD")
 
     def __init__(self, expire: int = 60 * 60):
-        self.conn = redis.Redis(host=self.HOST, port=self.PORT)
+        self.conn = redis.Redis(host=self.HOST, port=self.PORT, password=self.PASS)
         self.expire = expire
 
     def _save_memory(self, memory: AgentMemory) -> UUID:
