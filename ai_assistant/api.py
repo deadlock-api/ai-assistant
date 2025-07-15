@@ -18,7 +18,7 @@ from smolagents import (
     ActionOutput,
     ApiModel,
 )
-from starlette.responses import Response, RedirectResponse
+from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
@@ -51,16 +51,6 @@ def redirect_to_docs():
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
     return get_scalar_api_reference(openapi_url=app.openapi_url, title=app.title, scalar_theme="default")
-
-
-@app.get("/health", include_in_schema=False)
-def get_health():
-    return {"status": "ok"}
-
-
-@app.head("/health", include_in_schema=False)
-def get_health_head():
-    return Response(status_code=200)
 
 
 @app.get("/replay")
