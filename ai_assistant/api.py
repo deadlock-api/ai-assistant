@@ -106,15 +106,15 @@ class StreamingResponseHandler:
                     if serialized:
                         data = json.dumps(serialized)
                         LOGGER.debug(f"Streaming data: {data}")
-                        yield f"data: {data}\n\n"
+                        yield f"event: agentStep\ndata: {data}\n\n"
                     else:
                         LOGGER.debug(f"Skipping step: {type(step)}")
             memory_id = MESSAGE_STORE.save_memory(agent.memory)
-            yield f"data: {json.dumps({'type': 'memory_id', 'data': str(memory_id)})}\n\n"
+            yield f"event: memoryId\ndata: {json.dumps({'type': 'memory_id', 'data': str(memory_id)})}\n\n"
         except Exception as e:
             LOGGER.error(f"Error during agent execution: {e}")
             error_data = json.dumps({"type": "error", "data": {"message": str(e)}})
-            yield f"data: {error_data}\n\n"
+            yield f"event: error\ndata: {error_data}\n\n"
 
 
 @app.get("/replay")
