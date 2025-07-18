@@ -24,6 +24,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from ai_assistant.configs import MODEL_CONFIGS, AGENT_INSTRUCTIONS, get_model, get_message_store, REPLAY
 from ai_assistant.tools import ALL_TOOLS
+from ai_assistant.relevancy import RelevancyChecker
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
@@ -166,6 +167,13 @@ async def invoke(
     model = MODEL_CONFIGS[model]() if model else get_model()
 
     try:
+        relevancy_checker = RelevancyChecker()
+        if not relevancy_checker.is_relevant(prompt.strip()):
+            raise HTTPException(
+                status_code=400,
+                detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
+            )
+
         stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
 
         async def async_stream():
@@ -184,6 +192,8 @@ async def invoke(
                 "X-Accel-Buffering": "no",
             },
         )
+    except HTTPException:
+        raise
     except Exception as e:
         LOGGER.error(f"Failed to create agent or start streaming: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
