@@ -63,13 +63,13 @@ async def replay(
     ),
     memory_id: UUID | None = Query(None),
     model: str | None = Query(None, description="Model to use for inference"),
-    sleep_time: int | None = Query(None, description="Sleep time in seconds between messages"),
+    sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
 ):
     async def generator():
         for line in REPLAY:
             yield line
             if sleep_time:
-                await asyncio.sleep(sleep_time)
+                await asyncio.sleep(float(sleep_time))
 
     return StreamingResponse(
         generator(),
