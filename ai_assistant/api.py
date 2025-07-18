@@ -118,7 +118,10 @@ class StreamingResponseHandler:
             )
             if memory_id:
                 if memory := MESSAGE_STORE.get_memory(memory_id):
+                    LOGGER.info(f"Loaded memory for ID {memory_id}: {memory}")
                     agent.memory = memory
+                else:
+                    LOGGER.warning(f"No memory found for ID {memory_id}, starting fresh.")
             with agent:
                 for step in agent.run(prompt, stream=True):
                     serialized = cls.serialize_step(step)
