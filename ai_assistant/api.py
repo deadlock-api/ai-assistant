@@ -63,13 +63,13 @@ async def replay(
     ),
     memory_id: UUID | None = Query(None),
     model: str | None = Query(None, description="Model to use for inference"),
-    sleep_time: int | None = Query(None, description="Sleep time in seconds between messages"),
+    sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
 ):
     async def generator():
         for line in REPLAY:
             yield line
             if sleep_time:
-                await asyncio.sleep(sleep_time)
+                await asyncio.sleep(float(sleep_time))
 
     return StreamingResponse(
         generator(),
@@ -118,9 +118,12 @@ class StreamingResponseHandler:
             )
             if memory_id:
                 if memory := MESSAGE_STORE.get_memory(memory_id):
+                    LOGGER.info(f"Loaded memory for ID {memory_id}: {memory}")
                     agent.memory = memory
+                else:
+                    LOGGER.warning(f"No memory found for ID {memory_id}, starting fresh.")
             with agent:
-                for step in agent.run(prompt, stream=True):
+                for step in agent.run(prompt, stream=True, reset=False):
                     serialized = cls.serialize_step(step)
                     if serialized:
                         data = json.dumps(serialized)
