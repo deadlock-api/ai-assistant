@@ -14,7 +14,7 @@ TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickh
 AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}"
 
 MODEL_CONFIGS = {
-    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini-2.5-flash-lite-preview-06-17"),
+    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash-lite-preview-06-17"),
     "gemini-flash": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
     "gemini-pro": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
     "ollama": lambda: LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
