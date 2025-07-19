@@ -29,6 +29,7 @@ from ai_assistant.relevancy import RelevancyChecker
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 MESSAGE_STORE = get_message_store()
+RELEVANCY_CHECKER = RelevancyChecker()
 
 app = FastAPI(
     title="AI Assistant API",
@@ -166,14 +167,13 @@ async def invoke(
         )
     model = MODEL_CONFIGS[model]() if model else get_model()
 
-    try:
-        relevancy_checker = RelevancyChecker()
-        if not relevancy_checker.is_relevant(prompt.strip()):
-            raise HTTPException(
-                status_code=400,
-                detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
-            )
+    if not RELEVANCY_CHECKER.is_relevant(prompt.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
+        )
 
+    try:
         stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
 
         async def async_stream():
@@ -192,8 +192,6 @@ async def invoke(
                 "X-Accel-Buffering": "no",
             },
         )
-    except HTTPException:
-        raise
     except Exception as e:
         LOGGER.error(f"Failed to create agent or start streaming: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")

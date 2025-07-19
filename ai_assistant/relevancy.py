@@ -4,6 +4,8 @@ import os
 from google import genai
 from google.genai.types import GenerateContentConfig
 
+from ai_assistant.configs import DEFAULT_LIGHT_MODEL
+
 LOGGER = logging.getLogger(__name__)
 
 RELEVANCY_SYSTEM_PROMPT = """You are a relevancy checker for a Deadlock game assistant.
@@ -34,7 +36,7 @@ Be strict - only accept prompts that could potentially be about Deadlock."""
 
 class RelevancyChecker:
     def __init__(self):
-        self.model_id = os.environ.get("LIGHT_MODEL", "gemini-2.5-flash-lite-preview-06-17")
+        self.model_id = os.environ.get("LIGHT_MODEL", DEFAULT_LIGHT_MODEL)
         self.client = genai.Client()
 
     def is_relevant(self, prompt: str) -> bool:
