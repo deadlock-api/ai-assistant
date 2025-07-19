@@ -22,14 +22,21 @@ from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
-from ai_assistant.configs import MODEL_CONFIGS, AGENT_INSTRUCTIONS, get_model, get_message_store, REPLAY
+from ai_assistant.configs import (
+    MODEL_CONFIGS,
+    AGENT_INSTRUCTIONS,
+    get_model,
+    get_message_store,
+    REPLAY,
+    DO_RELEVANCY_CHECK,
+)
 from ai_assistant.tools import ALL_TOOLS
-# from ai_assistant.relevancy import RelevancyChecker
+from ai_assistant.relevancy import RelevancyChecker
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 MESSAGE_STORE = get_message_store()
-# RELEVANCY_CHECKER = RelevancyChecker()
+RELEVANCY_CHECKER = RelevancyChecker()
 
 app = FastAPI(
     title="AI Assistant API",
@@ -167,11 +174,11 @@ async def invoke(
         )
     model = MODEL_CONFIGS[model]() if model else get_model()
 
-    # if not RELEVANCY_CHECKER.is_relevant(prompt.strip()):
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
-    #     )
+    if DO_RELEVANCY_CHECK and not RELEVANCY_CHECKER.is_relevant(prompt.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
+        )
 
     try:
         stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)

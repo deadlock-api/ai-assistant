@@ -8,6 +8,8 @@ from ai_assistant.utils import format_table_schema, list_clickhouse_tables
 
 LOGGER = logging.getLogger(__name__)
 
+DO_RELEVANCY_CHECK = os.environ.get("DO_RELEVANCY_CHECK", "false").lower() in ("true", "1", "yes")
+
 TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
 AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}"
 
