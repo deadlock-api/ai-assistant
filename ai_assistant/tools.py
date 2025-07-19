@@ -15,9 +15,12 @@ def search_steam_profile(name_or_id: str) -> int:
     Returns:
         int: Account ID
     """
-    return requests.get(f"https://api.deadlock-api.com/v1/players/steam-search?search_query={name_or_id}").json()[0][
-        "account_id"
-    ]
+    try:
+        return requests.get(f"https://api.deadlock-api.com/v1/players/steam-search?search_query={name_or_id}").json()[
+            0
+        ]["account_id"]
+    except (KeyError, IndexError):
+        raise ValueError(f"Player with name or ID '{name_or_id}' not found.")
 
 
 @tool
@@ -57,7 +60,7 @@ def hero_name_to_id(hero_name: str) -> int | str:
     """
     try:
         return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
-    except KeyError:
+    except (KeyError, IndexError):
         return "Hero not found"
 
 
@@ -81,7 +84,7 @@ def item_name_to_id(item_name: str) -> int | str:
     """
     try:
         return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
-    except KeyError:
+    except (KeyError, IndexError):
         return "Item not found"
 
 
