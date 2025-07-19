@@ -11,11 +11,7 @@ LOGGER = logging.getLogger(__name__)
 DO_RELEVANCY_CHECK = os.environ.get("DO_RELEVANCY_CHECK", "false").lower() in ("true", "1", "yes")
 
 TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
-AGENT_INSTRUCTIONS = f"""
-Available Clickhouse Tables:\n{TABLES_CONTEXT}
-
-If the questions seems not answerable with the available tools/data, simply return a final answer like: "This assistant only handles Deadlock game-related questions."
-"""
+AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}"
 
 MODEL_CONFIGS = {
     "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini-2.5-flash-lite-preview-06-17"),
