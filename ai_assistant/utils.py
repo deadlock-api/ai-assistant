@@ -10,12 +10,17 @@ EXCLUDED_TABLES = {
     "match_salts",
 }
 EXCLUDED_COLUMN_PREFIXES = {
+    "match_mode",
+    "game_mode",
+    "match_outcome",
     "death_details",
     "max_",
     "book_reward",
     "mid_boss",
     "objectives",
     "personastate",
+    "is_high_skill_range_parties",
+    "low_pri_pool",
     "profileurl",
     "avatar",
 }
@@ -39,3 +44,9 @@ def format_table_schema(table: str) -> str:
         if not any(name.startswith(prefix) for prefix in EXCLUDED_COLUMN_PREFIXES)
     ]
     return f"## Table: {table}\n" + "\n".join(columns)
+
+
+if __name__ == "__main__":
+    tables = list_clickhouse_tables()
+    for table in tables:
+        print(format_table_schema(table))
