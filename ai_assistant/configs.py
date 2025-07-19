@@ -14,7 +14,7 @@ TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickh
 AGENT_INSTRUCTIONS = f"""
 Available Clickhouse Tables:\n{TABLES_CONTEXT}
 
-If the questions seems not answerable with the available tools/data, simply return a final answer with "This assistant only handles Deadlock game-related questions."
+If the questions seems not answerable with the available tools/data, simply return a final answer like: "This assistant only handles Deadlock game-related questions."
 """
 
 MODEL_CONFIGS = {
