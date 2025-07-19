@@ -1,5 +1,9 @@
 import logging
 import os
+from dataclasses import dataclass
+
+from google import genai
+from google.genai.types import GenerateContentConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,125 +30,56 @@ Respond with ONLY "NO" if the prompt is about:
 - General life questions, coding help, or unrelated topics
 - Requests that don't involve Deadlock game content
 
-Be strict - only accept prompts that are clearly about Deadlock."""
+Be strict - only accept prompts that could potentially be about Deadlock."""
 
 
+@dataclass
 class RelevancyChecker:
-    def __init__(self):
-        self.model_id = os.environ.get("LIGHT_MODEL", "gemini-2.5-flash-lite-preview-06-17")
+    model_id = os.environ.get("LIGHT_MODEL", "gemini-2.5-flash-lite-preview-06-17")
 
     def is_relevant(self, prompt: str) -> bool:
         try:
-            import google.generativeai as genai
-
             if not os.environ.get("GEMINI_API_KEY"):
-                LOGGER.warning("GEMINI_API_KEY not set, using keyword filter")
-                return self._keyword_filter(prompt)
+                LOGGER.warning("GEMINI_API_KEY not set, will not run relevancy check")
+                return True
 
-            genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-            model = genai.GenerativeModel(self.model_id)
+            client = genai.Client()
 
             full_prompt = (
                 f"{RELEVANCY_SYSTEM_PROMPT}\n\nUser prompt: {prompt}\n\nRespond with exactly one word: YES or NO"
             )
 
-            response = model.generate_content(
-                full_prompt,
-                generation_config=genai.types.GenerationConfig(
+            response = client.models.generate_content(
+                model=self.model_id,
+                contents=full_prompt,
+                config=GenerateContentConfig(
                     max_output_tokens=1,
                     temperature=0.0,
+                    response_mime_type="text/x.enum",
+                    response_schema={
+                        "type": "string",
+                        "enum": ["YES", "NO"],
+                    },
                 ),
             )
 
             result = response.text.strip().upper()
             LOGGER.info(f"Light model ({self.model_id}) relevancy check: '{prompt[:100]}...' -> {result}")
             return result == "YES"
-
-        except ImportError as e:
-            LOGGER.warning(f"Google GenAI import failed: {e}, using keyword filter")
-            return self._keyword_filter(prompt)
         except Exception as e:
-            LOGGER.error(f"Error during light model relevancy check: {e}, falling back to keyword filter")
-            return self._keyword_filter(prompt)
+            LOGGER.error(f"Error during light model relevancy check: {e}")
+            return True
 
-    def _keyword_filter(self, prompt: str) -> bool:
-        banned_keywords = [
-            "league of legends",
-            "dota 2",
-            "dota",
-            "lol",
-            "valorant",
-            "cs:go",
-            "counter-strike",
-            "overwatch",
-            "apex legends",
-            "fortnite",
-            "minecraft",
-            "world of warcraft",
-            "wow",
-            "code",
-            "coding",
-            "programming",
-            "python",
-            "javascript",
-            "html",
-            "css",
-            "help me",
-            "how to",
-            "tutorial",
-            "learn",
-            "teach me",
-            "explain",
-            "what is",
-            "weather",
-            "news",
-            "politics",
-            "recipe",
-            "cooking",
-            "health",
-            "medical",
-            "finance",
-        ]
 
-        prompt_lower = prompt.lower()
-        for keyword in banned_keywords:
-            if keyword in prompt_lower:
-                LOGGER.info(f"Keyword filter rejected: '{keyword}' found in prompt")
-                return False
+if __name__ == "__main__":
+    checker = RelevancyChecker()
+    test_prompts = [
+        "Tell me about the Deadlock game mechanics.",
+        "What are the best heroes in Deadlock?",
+        "How do I play Dota 2?",
+        "Can you help me with Python coding?",
+        "What is the best item build for a Deadlock hero?",
+    ]
 
-        deadlock_keywords = [
-            "deadlock",
-            "hero",
-            "souls",
-            "patron",
-            "trooper",
-            "denizen",
-            "zipline",
-            "curiosity shop",
-            "badge",
-            "rank",
-            "ascendant",
-            "phantom",
-            "eternus",
-            "mirage",
-            "infernus",
-            "lady geist",
-            "lash",
-            "mcginnis",
-            "paradox",
-            "pocket",
-            "seven",
-            "shiv",
-            "vindicta",
-            "warden",
-            "wraith",
-            "yamato",
-        ]
-
-        for keyword in deadlock_keywords:
-            if keyword in prompt_lower:
-                LOGGER.info(f"Keyword filter accepted: '{keyword}' found in prompt")
-                return True
-
-        LOGGER.info("No clear Deadlock keywords found, rejecting")
-        return False
+    for prompt in test_prompts:
+        print(f"Prompt: {prompt} | Relevant: {checker.is_relevant(prompt)}")
