@@ -46,6 +46,18 @@ def format_table_schema(table: str) -> str:
     return f"## Table: {table}\n" + "\n".join(columns)
 
 
+def list_heroes() -> list[str]:
+    response = requests.get("https://assets.deadlock-api.com/v2/heroes")
+    heroes_data = response.json()
+    return [hero["name"] for hero in heroes_data]
+
+
+def list_items() -> list[str]:
+    response = requests.get("https://assets.deadlock-api.com/v2/items/by-type/upgrade")
+    items_data = response.json()
+    return [item["name"] for item in items_data if item.get("shopable", False)]
+
+
 if __name__ == "__main__":
     tables = list_clickhouse_tables()
     for table in tables:
