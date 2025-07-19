@@ -1,6 +1,5 @@
 import logging
 import os
-from dataclasses import dataclass
 
 from google import genai
 from google.genai.types import GenerateContentConfig
@@ -33,9 +32,10 @@ Respond with ONLY "NO" if the prompt is about:
 Be strict - only accept prompts that could potentially be about Deadlock."""
 
 
-@dataclass
 class RelevancyChecker:
-    model_id = os.environ.get("LIGHT_MODEL", "gemini-2.5-flash-lite-preview-06-17")
+    def __init__(self):
+        self.model_id = os.environ.get("LIGHT_MODEL", "gemini-2.5-flash-lite-preview-06-17")
+        self.client = genai.Client()
 
     def is_relevant(self, prompt: str) -> bool:
         try:
@@ -43,13 +43,11 @@ class RelevancyChecker:
                 LOGGER.warning("GEMINI_API_KEY not set, will not run relevancy check")
                 return True
 
-            client = genai.Client()
-
             full_prompt = (
                 f"{RELEVANCY_SYSTEM_PROMPT}\n\nUser prompt: {prompt}\n\nRespond with exactly one word: YES or NO"
             )
 
-            response = client.models.generate_content(
+            response = self.client.models.generate_content(
                 model=self.model_id,
                 contents=full_prompt,
                 config=GenerateContentConfig(
