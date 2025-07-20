@@ -5,6 +5,7 @@ from typing import List
 
 from google import genai
 from google.genai.types import GenerateContentConfig
+from pydantic import BaseModel, Field
 
 from ai_assistant.configs import DEFAULT_LIGHT_MODEL
 from ai_assistant.utils import list_heroes, list_items
@@ -36,7 +37,7 @@ IMPORTANT: Since this is a Deadlock-specific assistant, broad gaming questions s
 - "How do I improve?" (means: improve at Deadlock)
 - "What should I focus on?" (means: in Deadlock gameplay)
 
-Respond with ONLY "YES" if the user prompt is asking about:
+Respond with a high relevancy score if the user prompt is asking about:
 - Deadlock gameplay, mechanics, strategies, or rules
 - Deadlock heroes, abilities, items, or builds (including abbreviations)
 - Deadlock statistics, match data, or player performance
@@ -44,7 +45,7 @@ Respond with ONLY "YES" if the user prompt is asking about:
 - General gaming questions that would apply to Deadlock (best players, improvement tips, meta, builds, etc.)
 - Any other aspect specifically related to the Deadlock game
 
-Respond with ONLY "NO" if the prompt is about:
+Respond with a low relevancy score if the prompt is about:
 - Other games explicitly mentioned (CS:GO, Dota, League of Legends, etc.)
 - General life questions, coding help, or unrelated topics
 - Requests that clearly don't involve gaming or Deadlock content
@@ -52,9 +53,23 @@ Respond with ONLY "NO" if the prompt is about:
 Be liberal with gaming-related questions since this is a Deadlock assistant."""
 
 
+class RelevancyCheckResult(BaseModel):
+    relevancy_score: int = Field(
+        ...,
+        description="Relevancy score from 0 to 100, where 100 means highly relevant to Deadlock",
+        ge=0,
+        le=100,
+    )
+
+
 class RelevancyChecker:
-    def __init__(self):
-        self.model_id = os.environ.get("LIGHT_MODEL", DEFAULT_LIGHT_MODEL)
+    def __init__(
+        self,
+        model_id=os.environ.get("LIGHT_MODEL", DEFAULT_LIGHT_MODEL),
+        relevancy_threshold=int(os.environ.get("RELEVANCY_THRESHOLD", 50)),
+    ):
+        self.model_id = model_id
+        self.relevancy_threshold = relevancy_threshold
         self.client = genai.Client()
         self.heroes: list[str] = []
         self.items: list[str] = []
@@ -140,32 +155,31 @@ class RelevancyChecker:
                 f"{heroes_context}\n"
                 f"{items_context}\n\n"
                 f"User prompt: {prompt}\n\n"
-                f"Respond with exactly one word: YES or NO"
+                f"Respond with a json having a single field `relevancy_score` with a value from 0 to 100, "
+                f"where 100 means the prompt is highly relevant to Deadlock and 0 means it is not relevant at all."
             )
 
             response = self.client.models.generate_content(
                 model=self.model_id,
                 contents=full_prompt,
                 config=GenerateContentConfig(
-                    max_output_tokens=1,
                     temperature=0.0,
-                    response_mime_type="text/x.enum",
-                    response_schema={
-                        "type": "string",
-                        "enum": ["YES", "NO"],
-                    },
+                    response_mime_type="application/json",
+                    response_schema=RelevancyCheckResult,
                 ),
             )
 
-            result = response.text.strip().upper()
-            LOGGER.info(f"Light model ({self.model_id}) relevancy check: '{prompt[:100]}...' -> {result}")
-            return result == "YES"
+            result: RelevancyCheckResult = response.parsed
+            score = result.relevancy_score
+            LOGGER.info(f"Light model ({self.model_id}) relevancy check: '{prompt[:100]}...' -> {score}")
+            return score >= self.relevancy_threshold
         except Exception as e:
             LOGGER.error(f"Error during light model relevancy check: {e}")
             return True
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     checker = RelevancyChecker()
     test_prompts = [
         "Tell me about the Deadlock game mechanics.",
@@ -176,6 +190,9 @@ if __name__ == "__main__":
         "How does Abrams work?",
         "What does Quicksilver Reload do?",
         "Tell me about Infernus abilities",
+        "How many matches were there yesterday?",
+        "Who is the best player?",
+        "Can you be my friend?",
     ]
 
     for prompt in test_prompts:
