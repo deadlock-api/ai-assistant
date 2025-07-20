@@ -22,6 +22,7 @@ from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
+from ai_assistant import utils
 from ai_assistant.configs import (
     MODEL_CONFIGS,
     AGENT_INSTRUCTIONS,
@@ -157,7 +158,7 @@ async def invoke(
         description="The prompt to send to the AI agent",
     ),
     memory_id: UUID | None = Query(None),
-    model: str | None = Query(None, description="Model to use for inference"),
+    model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: UUID | None = Query(None, description="API-Key"),
 ):
     if valid_api_keys := os.environ.get("API_KEYS"):
@@ -167,12 +168,13 @@ async def invoke(
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
-    if model is not None and model not in MODEL_CONFIGS:
+    if model_name is not None and model_name not in MODEL_CONFIGS:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
         )
-    model = MODEL_CONFIGS[model]() if model else get_model()
+
+    model = MODEL_CONFIGS[model_name]() if model_name else get_model()
 
     if DO_RELEVANCY_CHECK and not RELEVANCY_CHECKER.is_relevant(prompt.strip()):
         raise HTTPException(
@@ -181,6 +183,8 @@ async def invoke(
         )
 
     try:
+        if model_name and model_name.startswith("gemini"):
+            model.api_key = utils.get_gemini_api_key()
         stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
 
         async def async_stream():

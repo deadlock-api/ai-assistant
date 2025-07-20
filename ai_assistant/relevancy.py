@@ -7,6 +7,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
 
+from ai_assistant import utils
 from ai_assistant.configs import DEFAULT_LIGHT_MODEL
 from ai_assistant.utils import list_heroes, list_items
 
@@ -159,6 +160,7 @@ class RelevancyChecker:
                 f"where 100 means the prompt is highly relevant to Deadlock and 0 means it is not relevant at all."
             )
 
+            self.client._api_client.api_key = utils.get_gemini_api_key()
             response = self.client.models.generate_content(
                 model=self.model_id,
                 contents=full_prompt,

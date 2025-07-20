@@ -1,3 +1,6 @@
+import itertools
+import os
+
 import requests
 
 EXCLUDED_TABLES = {
@@ -56,6 +59,16 @@ def list_items() -> list[str]:
     response = requests.get("https://assets.deadlock-api.com/v2/items/by-type/upgrade")
     items_data = response.json()
     return [item["name"] for item in items_data if item.get("shopable", False)]
+
+
+gemini_api_keys = os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).split(",")
+gemini_api_keys_iter = itertools.cycle(gemini_api_keys) if gemini_api_keys else None
+
+
+def get_gemini_api_key() -> str:
+    if gemini_api_keys_iter:
+        return next(gemini_api_keys_iter).strip()
+    raise ValueError("No valid Gemini API keys found in environment variables.")
 
 
 if __name__ == "__main__":
