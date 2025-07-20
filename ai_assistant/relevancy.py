@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from typing import List
 
 from google import genai
@@ -21,19 +22,34 @@ Deadlock is a 6v6 team-based third-person shooter and MOBA where:
 - Takes place in an alternative version of New York City with occult references
 - Features ziplines, teleporters, and various game mechanisms
 
+Players commonly use abbreviations for hero and item names. For example:
+- "GT" for "Grey Talon"
+- "QSR" for "Quicksilver Reload"
+- "LG" for "Lady Geist"
+- Accept any reasonable abbreviation based on first letters of significant words
+
+IMPORTANT: Since this is a Deadlock-specific assistant, broad gaming questions should be assumed to be about Deadlock even if not explicitly mentioned. Examples of implicitly Deadlock-related questions:
+- "Who is the best player?" (means: best Deadlock player)
+- "Am I a good player?" (means: am I good at Deadlock)
+- "What's the meta?" (means: Deadlock meta)
+- "Best builds?" (means: best Deadlock builds)
+- "How do I improve?" (means: improve at Deadlock)
+- "What should I focus on?" (means: in Deadlock gameplay)
+
 Respond with ONLY "YES" if the user prompt is asking about:
 - Deadlock gameplay, mechanics, strategies, or rules
-- Deadlock heroes, abilities, items, or builds
+- Deadlock heroes, abilities, items, or builds (including abbreviations)
 - Deadlock statistics, match data, or player performance
 - Deadlock rankings, badges, or progression
+- General gaming questions that would apply to Deadlock (best players, improvement tips, meta, builds, etc.)
 - Any other aspect specifically related to the Deadlock game
 
 Respond with ONLY "NO" if the prompt is about:
-- Other games (CS:GO, Dota, League of Legends, etc.)
+- Other games explicitly mentioned (CS:GO, Dota, League of Legends, etc.)
 - General life questions, coding help, or unrelated topics
-- Requests that don't involve Deadlock game content
+- Requests that clearly don't involve gaming or Deadlock content
 
-Be strict - only accept prompts that could potentially be about Deadlock."""
+Be liberal with gaming-related questions since this is a Deadlock assistant."""
 
 
 class RelevancyChecker:
@@ -54,18 +70,46 @@ class RelevancyChecker:
             self.heroes = []
             self.items = []
 
+    def _generate_hero_abbreviations(self, hero_name: str) -> List[str]:
+        abbreviations = []
+        words = hero_name.replace("&", "").split()
+        if len(words) > 1:
+            abbreviations.append("".join(word[0].upper() for word in words))
+        return abbreviations
+
+    def _generate_item_abbreviations(self, item_name: str) -> List[str]:
+        abbreviations = []
+        common_words = {"the", "of", "and", "a", "an", "in", "on", "at", "to", "for", "with", "&"}
+        words = [word for word in item_name.replace("&", "").split() if word.lower() not in common_words]
+
+        if len(words) > 1:
+            abbreviations.append("".join(word[0].upper() for word in words))
+        if len(words) >= 2:
+            abbreviations.append("".join(word[0].upper() for word in words[:2]))
+        return abbreviations
+
     def _check_keyword_match(self, prompt: str) -> bool:
         prompt_lower = prompt.lower()
 
         for hero in self.heroes:
-            if hero.lower() in prompt_lower:
+            if re.search(r"\b" + re.escape(hero.lower()) + r"\b", prompt_lower):
                 LOGGER.info(f"Found hero match: '{hero}' in prompt")
                 return True
 
+            for abbrev in self._generate_hero_abbreviations(hero):
+                if len(abbrev) >= 3 and re.search(r"\b" + re.escape(abbrev.lower()) + r"\b", prompt_lower):
+                    LOGGER.info(f"Found hero abbreviation match: '{abbrev}' ({hero}) in prompt")
+                    return True
+
         for item in self.items:
-            if item.lower() in prompt_lower:
+            if re.search(r"\b" + re.escape(item.lower()) + r"\b", prompt_lower):
                 LOGGER.info(f"Found item match: '{item}' in prompt")
                 return True
+
+            for abbrev in self._generate_item_abbreviations(item):
+                if len(abbrev) >= 3 and re.search(r"\b" + re.escape(abbrev.lower()) + r"\b", prompt_lower):
+                    LOGGER.info(f"Found item abbreviation match: '{abbrev}' ({item}) in prompt")
+                    return True
 
         return False
 
@@ -78,8 +122,18 @@ class RelevancyChecker:
                 LOGGER.warning("GEMINI_API_KEY not set, will not run relevancy check")
                 return True
 
-            heroes_context = f"Known Heroes: {', '.join(self.heroes[:10])}" if self.heroes else ""
-            items_context = f"Known Items: {', '.join(self.items[:10])}" if self.items else ""
+            heroes_with_abbrevs = []
+            for hero in self.heroes:
+                abbrevs = self._generate_hero_abbreviations(hero)
+                heroes_with_abbrevs.append(f"{hero} ({', '.join(abbrevs)})")
+
+            items_with_abbrevs = []
+            for item in self.items:
+                abbrevs = self._generate_item_abbreviations(item)
+                items_with_abbrevs.append(f"{item} ({', '.join(abbrevs)})")
+
+            heroes_context = f"Known Heroes: {', '.join(heroes_with_abbrevs)}" if self.heroes else ""
+            items_context = f"Known Items: {', '.join(items_with_abbrevs)}" if self.items else ""
 
             full_prompt = (
                 f"{RELEVANCY_SYSTEM_PROMPT}\n\n"
