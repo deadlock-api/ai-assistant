@@ -53,7 +53,8 @@ def badge_to_rank(badge: int) -> str:
     Retrieve rank name and subtier for badge index.
 
     Args:
-        badge: The badge index.
+        badge: The badge index must be between 0 and 116.
+            last digit represents the subrank, first digits represent the rank.
 
     Returns:
         str: Rank name and subtier, for example: Ascendant 4
