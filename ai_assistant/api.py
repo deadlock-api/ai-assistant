@@ -33,11 +33,13 @@ from ai_assistant.configs import (
 )
 from ai_assistant.tools import ALL_TOOLS
 from ai_assistant.relevancy import RelevancyChecker
+from ai_assistant.conversation_formatter import ConversationFormatter
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 MESSAGE_STORE = get_message_store()
 RELEVANCY_CHECKER = RelevancyChecker()
+CONVERSATION_FORMATTER = ConversationFormatter()
 
 app = FastAPI(
     title="AI Assistant API",
@@ -141,6 +143,18 @@ class StreamingResponseHandler:
                         yield f"event: agentStep\ndata: {data}\n\n"
                     else:
                         LOGGER.debug(f"Skipping step: {type(step)}")
+
+            # Generate formatted conversation response using the light model
+            try:
+                LOGGER.info("Generating formatted conversation response...")
+                formatted_response = CONVERSATION_FORMATTER.format_conversation(agent.memory)
+                formatted_data = json.dumps({"type": "formatted_response", "data": formatted_response})
+                yield f"event: agentStep\ndata: {formatted_data}\n\n"
+                LOGGER.info("Formatted conversation response generated successfully")
+            except Exception as e:
+                LOGGER.error(f"Error generating formatted response: {e}")
+                # Continue without formatted response if it fails
+
             memory_id = MESSAGE_STORE.save_memory(agent.memory)
             yield f"event: memoryId\ndata: {memory_id}\n\n"
         except Exception as e:

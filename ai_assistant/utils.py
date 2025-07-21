@@ -2,6 +2,7 @@ import itertools
 import os
 
 import requests
+from smolagents import AgentMemory, ChatMessage
 
 EXCLUDED_TABLES = {
     "active_matches",
@@ -70,6 +71,24 @@ def get_gemini_api_key() -> str:
     if gemini_api_keys_iter:
         return next(gemini_api_keys_iter).strip()
     raise ValueError("No valid Gemini API keys found in environment variables.")
+
+
+def extract_messages_from_memory(memory: AgentMemory) -> list[ChatMessage]:
+    messages = []
+    if memory.system_prompt:
+        messages.extend(memory.system_prompt.to_messages())
+    messages.extend(m for step in memory.steps for m in step.to_messages())
+    return messages
+
+
+def format_messages_for_prompt(messages: list[ChatMessage]) -> str:
+    formatted_parts = []
+    for msg in messages:
+        if msg.role == "user":
+            formatted_parts.append(f"USER: {msg.content}")
+        else:
+            formatted_parts.append(f"ASSISTANT: {msg.content}")
+    return "\n\n".join(formatted_parts)
 
 
 if __name__ == "__main__":
