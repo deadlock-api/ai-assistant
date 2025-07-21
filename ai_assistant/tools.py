@@ -36,7 +36,7 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
 
     Args:
         rank_name: The rank, for example: Ascendant
-        rank_tier: Optional subrank, for example: 4
+        rank_tier: Optional subrank (every rank has 6 subranks 1-6), for example: 4
 
     Returns:
         int | str: Hero ID or "Item not found"
