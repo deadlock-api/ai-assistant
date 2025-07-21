@@ -24,6 +24,7 @@ EXCLUDED_COLUMN_PREFIXES = {
     "new_player_pool",
     "is_high_skill_range_parties",
     "low_pri_pool",
+    "game_mode_version",
     "profileurl",
     "avatar",
 }
