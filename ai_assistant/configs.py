@@ -38,8 +38,8 @@ REPLAY = [
 
 def get_model() -> ApiModel:
     if model := os.environ.get("MODEL"):
-        if model in MODEL_CONFIGS:
-            return MODEL_CONFIGS[model]()
+        if model.strip() in MODEL_CONFIGS:
+            return MODEL_CONFIGS[model.strip()]()
 
     if "GEMINI_API_KEY" in os.environ:
         LOGGER.info("Using Google Gemini Flash Model")
