@@ -135,7 +135,7 @@ class StreamingResponseHandler:
                 else:
                     LOGGER.warning(f"No memory found for ID {memory_id}, starting fresh.")
             with agent:
-                for step in agent.run(prompt, stream=True, reset=False):
+                for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
                     serialized = cls.serialize_step(step)
                     if serialized:
                         data = json.dumps(serialized)
