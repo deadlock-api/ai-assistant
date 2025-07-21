@@ -21,6 +21,7 @@ EXCLUDED_COLUMN_PREFIXES = {
     "book_reward",
     "objectives",
     "personastate",
+    "new_player_pool",
     "is_high_skill_range_parties",
     "low_pri_pool",
     "profileurl",
