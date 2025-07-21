@@ -19,7 +19,6 @@ EXCLUDED_COLUMN_PREFIXES = {
     "death_details",
     "max_",
     "book_reward",
-    "mid_boss",
     "objectives",
     "personastate",
     "is_high_skill_range_parties",
