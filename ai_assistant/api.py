@@ -137,7 +137,7 @@ class StreamingResponseHandler:
                     serialized = cls.serialize_step(step)
                     if serialized:
                         data = json.dumps(serialized)
-                        LOGGER.debug(f"Streaming data: {data}")
+                        LOGGER.info(f"Streaming data: {data}")
                         yield f"event: agentStep\ndata: {data}\n\n"
                     else:
                         LOGGER.debug(f"Skipping step: {type(step)}")
