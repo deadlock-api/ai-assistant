@@ -146,10 +146,9 @@ class StreamingResponseHandler:
 
             # Generate formatted conversation response using the light model
             try:
-                LOGGER.info("Generating formatted conversation response...")
                 formatted_response = CONVERSATION_FORMATTER.format_conversation(agent.memory)
-                formatted_data = json.dumps({"type": "formatted_response", "data": formatted_response})
-                yield f"event: agentStep\ndata: {formatted_data}\n\n"
+                LOGGER.info(f"Generated formatted conversation response: {formatted_response}")
+                yield f"event: agentStep\ndata: {formatted_response}\n\n"
                 LOGGER.info("Formatted conversation response generated successfully")
             except Exception as e:
                 LOGGER.error(f"Error generating formatted response: {e}")
