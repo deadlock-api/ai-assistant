@@ -1,3 +1,5 @@
+import os
+
 import Levenshtein
 import requests
 import sqlglot
@@ -160,7 +162,8 @@ def clickhouse_query(sql: str) -> list[dict]:
     Returns:
         list[dict[str, Any]]: Query Result
     """
-    sql = sqlglot.transpile(sql, write="clickhouse")[0]
+    if os.environ.get("USE_GLOT", "true") == "true":
+        sql = sqlglot.transpile(sql, write="clickhouse")[0]
     results = requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()
     if len(results) == 0:
         raise Exception("No results found!")
