@@ -148,7 +148,8 @@ class StreamingResponseHandler:
             try:
                 formatted_response = CONVERSATION_FORMATTER.format_conversation(agent.memory)
                 LOGGER.info(f"Generated formatted conversation response: {formatted_response}")
-                yield f"event: agentStep\ndata: {formatted_response}\n\n"
+                formatted_response = {"type": "formatted_response", "data": formatted_response}
+                yield f"event: agentStep\ndata: {json.dumps(formatted_response)}\n\n"
                 LOGGER.info("Formatted conversation response generated successfully")
             except Exception as e:
                 LOGGER.error(f"Error generating formatted response: {e}")
