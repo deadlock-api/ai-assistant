@@ -153,12 +153,16 @@ class RelevancyChecker:
             items_context = f"Known Items: {', '.join(items_with_abbrevs)}" if self.items else ""
 
             # Extract and format conversation history
-            conversation_history = utils.extract_messages_from_memory(memory)
-            formatted_conversation = utils.format_messages_for_prompt(conversation_history)
+            if memory:
+                conversation_history = utils.extract_messages_from_memory(memory)
+                formatted_conversation = utils.format_messages_for_prompt(conversation_history)
+                conversation_context = f"Conversation History:\n{formatted_conversation}\n\n"
+            else:
+                conversation_context = ""
 
             full_prompt = (
                 f"{RELEVANCY_SYSTEM_PROMPT}\n\n"
-                f"CONVERSATION HISTORY:\n{formatted_conversation}\n\n"
+                f"{conversation_context}"
                 f"{heroes_context}\n"
                 f"{items_context}\n\n"
                 f"User prompt: {prompt}\n\n"
