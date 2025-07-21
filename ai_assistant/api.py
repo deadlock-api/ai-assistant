@@ -17,6 +17,7 @@ from smolagents import (
     FinalAnswerStep,
     ActionOutput,
     ApiModel,
+    AgentMemory,
 )
 from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
@@ -120,7 +121,7 @@ class StreamingResponseHandler:
         cls,
         prompt: str,
         model: ApiModel,
-        memory_id: UUID | None = None,
+        memory: AgentMemory | None = None,
     ) -> Generator[str, None]:
         try:
             agent = CodeAgent(
@@ -128,12 +129,8 @@ class StreamingResponseHandler:
                 tools=ALL_TOOLS,
                 instructions=AGENT_INSTRUCTIONS,
             )
-            if memory_id:
-                if memory := MESSAGE_STORE.get_memory(memory_id):
-                    LOGGER.info(f"Loaded memory for ID {memory_id}: {memory}")
-                    agent.memory = memory
-                else:
-                    LOGGER.warning(f"No memory found for ID {memory_id}, starting fresh.")
+            if memory:
+                agent.memory = memory
             with agent:
                 for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
                     serialized = cls.serialize_step(step)
@@ -190,7 +187,14 @@ async def invoke(
 
     model = MODEL_CONFIGS[model_name]() if model_name else get_model()
 
-    if DO_RELEVANCY_CHECK and not RELEVANCY_CHECKER.is_relevant(prompt.strip()):
+    memory = None
+    if memory_id:
+        if memory := MESSAGE_STORE.get_memory(memory_id):
+            LOGGER.info(f"Loaded memory for ID {memory_id}")
+        else:
+            LOGGER.warning(f"No memory found for ID {memory_id}, starting fresh.")
+
+    if DO_RELEVANCY_CHECK and not RELEVANCY_CHECKER.is_relevant(prompt.strip(), memory):
         raise HTTPException(
             status_code=400,
             detail="This assistant only handles Deadlock game-related questions. Please ask about Deadlock gameplay, heroes, items, statistics, or other game-related topics.",
@@ -199,7 +203,7 @@ async def invoke(
     try:
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
-        stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory_id)
+        stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory)
 
         async def async_stream():
             while True:

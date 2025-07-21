@@ -6,6 +6,7 @@ from typing import List
 from google import genai
 from google.genai.types import GenerateContentConfig
 from pydantic import BaseModel, Field
+from smolagents import AgentMemory
 
 from ai_assistant import utils
 from ai_assistant.configs import DEFAULT_LIGHT_MODEL
@@ -129,7 +130,7 @@ class RelevancyChecker:
 
         return False
 
-    def is_relevant(self, prompt: str) -> bool:
+    def is_relevant(self, prompt: str, memory: AgentMemory | None = None) -> bool:
         if self._check_keyword_match(prompt):
             return True
 
@@ -151,8 +152,13 @@ class RelevancyChecker:
             heroes_context = f"Known Heroes: {', '.join(heroes_with_abbrevs)}" if self.heroes else ""
             items_context = f"Known Items: {', '.join(items_with_abbrevs)}" if self.items else ""
 
+            # Extract and format conversation history
+            conversation_history = utils.extract_messages_from_memory(memory)
+            formatted_conversation = utils.format_messages_for_prompt(conversation_history)
+
             full_prompt = (
                 f"{RELEVANCY_SYSTEM_PROMPT}\n\n"
+                f"CONVERSATION HISTORY:\n{formatted_conversation}\n\n"
                 f"{heroes_context}\n"
                 f"{items_context}\n\n"
                 f"User prompt: {prompt}\n\n"
