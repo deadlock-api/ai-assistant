@@ -5,6 +5,8 @@ from ai_assistant.tools import (
     rank_to_badge,
     clickhouse_query,
     badge_to_rank,
+    hero_id_to_name,
+    item_id_to_name,
 )
 
 
@@ -13,9 +15,19 @@ def test_hero_name_to_id():
     assert hero_name_to_id("Wrath") == 7
 
 
+def test_hero_id_to_name():
+    assert hero_id_to_name(7) == "Wraith"
+    assert hero_id_to_name(1000) == "Hero not found"
+
+
 def test_item_name_to_id():
     assert item_name_to_id("Extended Magazine") == 1548066885
     assert item_name_to_id("Extended Magazin") == 1548066885
+
+
+def test_item_id_to_name():
+    assert item_id_to_name(1548066885) == "Extended Magazine"
+    assert item_id_to_name(1000) == "Item not found"
 
 
 def test_rank_to_badge():

@@ -81,6 +81,28 @@ def hero_name_to_id(hero_name: str) -> int | str:
 
 
 @tool
+def hero_id_to_name(hero_id: int) -> str:
+    """
+    Retrieve the hero name by a given hero id.
+
+    Args:
+        hero_id: The id of the hero.
+
+    Returns:
+        str: Hero name or "Hero not found"
+    """
+    sql = f"""
+    SELECT name
+    FROM heroes
+    WHERE id = {hero_id}
+    """
+    try:
+        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["name"]
+    except (KeyError, IndexError):
+        return "Hero not found"
+
+
+@tool
 def item_name_to_id(item_name: str) -> int | str:
     """
     Retrieve the item id by a given item name.
@@ -100,6 +122,28 @@ def item_name_to_id(item_name: str) -> int | str:
     """
     try:
         return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
+    except (KeyError, IndexError):
+        return "Item not found"
+
+
+@tool
+def item_id_to_name(item_id: int) -> str:
+    """
+    Retrieve the item name by a given item id.
+
+    Args:
+        item_id: The id of the item.
+
+    Returns:
+        str: Item name or "Item not found"
+    """
+    sql = f"""
+    SELECT name
+    FROM items
+    WHERE id = {item_id}
+    """
+    try:
+        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["name"]
     except (KeyError, IndexError):
         return "Item not found"
 
@@ -125,7 +169,9 @@ def clickhouse_query(sql: str) -> list[dict]:
 
 ALL_TOOLS = [
     hero_name_to_id,
+    hero_id_to_name,
     item_name_to_id,
+    item_id_to_name,
     rank_to_badge,
     badge_to_rank,
     search_steam_profile,
