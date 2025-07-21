@@ -1,9 +1,12 @@
+import logging
 import os
 
 import Levenshtein
 import requests
 import sqlglot
 from smolagents import tool
+
+LOGGER = logging.getLogger(__name__)
 
 
 @tool
@@ -17,6 +20,7 @@ def search_steam_profile(name_or_id: str) -> int:
     Returns:
         int: Account ID
     """
+    LOGGER.info(f"search_steam_profile({name_or_id})")
     try:
         return requests.get(f"https://api.deadlock-api.com/v1/players/steam-search?search_query={name_or_id}").json()[
             0
@@ -37,6 +41,7 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
     Returns:
         int | str: Hero ID or "Item not found"
     """
+    LOGGER.info(f"rank_to_badge({rank_name}, {rank_tier})")
     ranks = requests.get("https://assets.deadlock-api.com/v2/ranks").json()
     closest_rank = min(ranks, key=lambda rank: Levenshtein.distance(rank["name"].lower(), rank_name))
     return closest_rank["tier"] * 10 + rank_tier
@@ -53,6 +58,7 @@ def badge_to_rank(badge: int) -> str:
     Returns:
         str: Rank name and subtier, for example: Ascendant 4
     """
+    LOGGER.info(f"badge_to_rank({badge})")
     rank_tier = badge % 10
     rank_name = requests.get("https://assets.deadlock-api.com/v2/ranks").json()[badge // 10]["name"]
     return f"{rank_name} {rank_tier}"
@@ -69,6 +75,7 @@ def hero_name_to_id(hero_name: str) -> int | str:
     Returns:
         int | str: Hero ID or "Item not found"
     """
+    LOGGER.info(f"hero_name_to_id({hero_name})")
     sql = f"""
     SELECT id
     FROM heroes
@@ -93,15 +100,11 @@ def hero_id_to_name(hero_id: int) -> str:
     Returns:
         str: Hero name or "Hero not found"
     """
-    sql = f"""
-    SELECT name
-    FROM heroes
-    WHERE id = {hero_id}
-    """
-    try:
-        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["name"]
-    except (KeyError, IndexError):
-        return "Hero not found"
+    LOGGER.info(f"hero_id_to_name({hero_id})")
+    result = requests.get(f"https://assets.deadlock-api.com/v2/heroes/{hero_id}").json()
+    if result:
+        return result["name"]
+    return "Hero not found"
 
 
 @tool
@@ -115,6 +118,7 @@ def item_name_to_id(item_name: str) -> int | str:
     Returns:
         int | str: Item ID or "Item not found"
     """
+    LOGGER.info(f"item_name_to_id({item_name})")
     sql = f"""
     SELECT id
     FROM items
@@ -139,15 +143,11 @@ def item_id_to_name(item_id: int) -> str:
     Returns:
         str: Item name or "Item not found"
     """
-    sql = f"""
-    SELECT name
-    FROM items
-    WHERE id = {item_id}
-    """
-    try:
-        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["name"]
-    except (KeyError, IndexError):
-        return "Item not found"
+    LOGGER.info(f"item_id_to_name({item_id})")
+    result = requests.get(f"https://assets.deadlock-api.com/v2/items/{item_id}").json()
+    if result:
+        return result["name"]
+    return "Item not found"
 
 
 @tool
@@ -162,6 +162,7 @@ def clickhouse_query(sql: str) -> list[dict]:
     Returns:
         list[dict[str, Any]]: Query Result
     """
+    LOGGER.info(f"clickhouse_query({sql})")
     if os.environ.get("USE_GLOT", "true") == "true":
         sql = sqlglot.transpile(sql, write="clickhouse")[0]
     results = requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()
