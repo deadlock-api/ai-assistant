@@ -4,6 +4,7 @@ from ai_assistant.tools import (
     item_name_to_id,
     rank_to_badge,
     clickhouse_query,
+    badge_to_rank,
 )
 
 
@@ -20,6 +21,11 @@ def test_item_name_to_id():
 def test_rank_to_badge():
     assert rank_to_badge("Ascendant", 4) == 104
     assert rank_to_badge("Phantom") == 90
+
+
+def test_badge_to_rank():
+    assert badge_to_rank(104) == "Ascendant 4"
+    assert badge_to_rank(90) == "Phantom 0"
 
 
 def test_search_steam_profile():

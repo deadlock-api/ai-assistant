@@ -41,6 +41,22 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
 
 
 @tool
+def badge_to_rank(badge: int) -> str:
+    """
+    Retrieve rank name and subtier for badge index.
+
+    Args:
+        badge: The badge index.
+
+    Returns:
+        str: Rank name and subtier, for example: Ascendant 4
+    """
+    rank_tier = badge % 10
+    rank_name = requests.get("https://assets.deadlock-api.com/v2/ranks").json()[badge // 10]["name"]
+    return f"{rank_name} {rank_tier}"
+
+
+@tool
 def hero_name_to_id(hero_name: str) -> int | str:
     """
     Retrieve the hero id by a given hero name.
@@ -111,6 +127,7 @@ ALL_TOOLS = [
     hero_name_to_id,
     item_name_to_id,
     rank_to_badge,
+    badge_to_rank,
     search_steam_profile,
     clickhouse_query,
 ]
