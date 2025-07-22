@@ -14,13 +14,13 @@ TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickh
 AGENT_INSTRUCTIONS = f"Available Clickhouse Tables:\n{TABLES_CONTEXT}\n\nFormat the final answer as simple string."
 
 MODEL_CONFIGS = {
-    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash-lite-preview-06-17"),
+    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash-lite"),
     "gemini-flash": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
     "gemini-pro": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
     "ollama": lambda: LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
     "hf": lambda: InferenceClientModel(),
 }
-DEFAULT_LIGHT_MODEL = "gemini-2.5-flash-lite-preview-06-17"
+DEFAULT_LIGHT_MODEL = "gemini-2.5-flash-lite"
 
 REPLAY = [
     'event: agentStep\ndata: {"type": "action_output", "data": "ActionOutput(output=None, is_final_answer=False)"}\n\n',
