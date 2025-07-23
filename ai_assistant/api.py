@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Dict, Any, Generator
 from uuid import UUID
 
@@ -127,7 +128,7 @@ class StreamingResponseHandler:
             agent = CodeAgent(
                 model=model,
                 tools=ALL_TOOLS,
-                instructions=AGENT_INSTRUCTIONS,
+                instructions=f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{AGENT_INSTRUCTIONS}",
             )
             if memory:
                 agent.memory = memory
