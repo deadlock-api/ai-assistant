@@ -134,7 +134,11 @@ class StreamingResponseHandler:
                 agent.memory = memory
             with agent:
                 for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
-                    serialized = cls.serialize_step(step)
+                    try:
+                        serialized = cls.serialize_step(step)
+                    except Exception as e:
+                        LOGGER.error(f"Error serializing step: {e}")
+                        continue
                     if serialized:
                         data = json.dumps(serialized)
                         LOGGER.info(f"Streaming data: {data}")
