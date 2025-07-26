@@ -76,6 +76,7 @@ async def replay(
         description="The prompt to send to the AI agent",
     ),
     memory_id: UUID | None = Query(None),
+    steam_id: int | None = Query(None),
     model: str | None = Query(None, description="Model to use for inference"),
     sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
 ):
@@ -121,14 +122,18 @@ class StreamingResponseHandler:
     def generate_stream(
         cls,
         prompt: str,
+        steam_id: int | None,
         model: ApiModel,
         memory: AgentMemory | None = None,
     ) -> Generator[str, None]:
         try:
+            instructions = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{AGENT_INSTRUCTIONS}"
+            if steam_id:
+                instructions += f"\n\nSteam ID of Prompting User: {steam_id}"
             agent = CodeAgent(
                 model=model,
                 tools=ALL_TOOLS,
-                instructions=f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{AGENT_INSTRUCTIONS}",
+                instructions=instructions,
             )
             if memory:
                 agent.memory = memory
@@ -174,6 +179,7 @@ async def invoke(
         description="The prompt to send to the AI agent",
     ),
     memory_id: UUID | None = Query(None),
+    steam_id: int | None = Query(None),
     model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: str | None = Query(None, description="API-Key"),
 ):
@@ -208,7 +214,7 @@ async def invoke(
     try:
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
-        stream = StreamingResponseHandler.generate_stream(prompt.strip(), model, memory)
+        stream = StreamingResponseHandler.generate_stream(prompt.strip(), steam_id, model, memory)
 
         async def async_stream():
             while True:
