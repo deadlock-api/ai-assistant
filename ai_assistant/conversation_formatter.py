@@ -48,7 +48,7 @@ class ConversationFormatter:
         self.model_id = model_id
         self.client = genai.Client()
 
-    def format_conversation(self, memory: AgentMemory) -> str:
+    def format_conversation(self, memory: AgentMemory, full_markdown: bool = False) -> str:
         try:
             # Extract and format conversation history
             conversation_history = utils.extract_messages_from_memory(memory)
@@ -63,7 +63,7 @@ class ConversationFormatter:
                 f"{CONVERSATION_FORMATTER_SYSTEM_PROMPT}\n\n"
                 f"CONVERSATION HISTORY:\n{formatted_conversation}\n\n"
                 "Based on this complete conversation history, generate a comprehensive, "
-                "Discord markdown formatted response that synthesizes all the information "
+                f"{'Discord' if not full_markdown else ''} Markdown formatted response that synthesizes all the information "
                 "and provides a polished answer with explanatory context. "
                 "Keep it short, simple, and to the point!"
             )

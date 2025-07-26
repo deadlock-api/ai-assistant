@@ -78,6 +78,7 @@ async def replay(
     memory_id: UUID | None = Query(None),
     steam_id: int | None = Query(None),
     model: str | None = Query(None, description="Model to use for inference"),
+    markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
     sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
 ):
     async def generator():
@@ -125,6 +126,7 @@ class StreamingResponseHandler:
         steam_id: int | None,
         model: ApiModel,
         memory: AgentMemory | None = None,
+        markdown_syntax: bool = False,
     ) -> Generator[str, None]:
         try:
             instructions = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{AGENT_INSTRUCTIONS}"
@@ -153,7 +155,7 @@ class StreamingResponseHandler:
 
             # Generate formatted conversation response using the light model
             try:
-                formatted_response = CONVERSATION_FORMATTER.format_conversation(agent.memory)
+                formatted_response = CONVERSATION_FORMATTER.format_conversation(agent.memory, markdown_syntax)
                 LOGGER.info(f"Generated formatted conversation response: {formatted_response}")
                 formatted_response = {"type": "formatted_response", "data": formatted_response}
                 yield f"event: agentStep\ndata: {json.dumps(formatted_response)}\n\n"
@@ -182,6 +184,7 @@ async def invoke(
     steam_id: int | None = Query(None),
     model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: str | None = Query(None, description="API-Key"),
+    markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
 ):
     if valid_api_keys := os.environ.get("API_KEYS"):
         if valid_api_keys and api_key not in valid_api_keys.split(","):
@@ -214,7 +217,7 @@ async def invoke(
     try:
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
-        stream = StreamingResponseHandler.generate_stream(prompt.strip(), steam_id, model, memory)
+        stream = StreamingResponseHandler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
 
         async def async_stream():
             while True:
