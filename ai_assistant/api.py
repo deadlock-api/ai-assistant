@@ -101,6 +101,8 @@ async def replay(
 
 
 class StreamingResponseHandler:
+    already_sent_images = set()
+
     @staticmethod
     def serialize_step(step) -> Dict[str, Any] | None:
         if isinstance(step, ActionStep):
@@ -109,7 +111,9 @@ class StreamingResponseHandler:
                 for s in step.to_messages()
             )
             plots = StreamingResponseHandler.find_plots(content)
+            plots = plots - StreamingResponseHandler.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+            StreamingResponseHandler.already_sent_images.update(plots)
             return {"type": "action", "data": [m.dict() for m in step.to_messages()], "plots": base64_plots}
         elif isinstance(step, ActionOutput):
             return {
