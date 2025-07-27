@@ -1,4 +1,4 @@
-FROM python:3.12
+FROM python:3.13
 
 # Install system dependencies needed for rustup and building native extensions.
 # 'curl' is for downloading rustup, and 'build-base' provides C compilers, etc.
