@@ -289,9 +289,16 @@ async def invoke(
             model.api_key = utils.get_gemini_api_key()
 
         if langfuse:
-            langfuse.update_current_trace(session_id=str(uuid4()))
-        handler = StreamingResponseHandler()
-        stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
+            with langfuse.start_as_current_span(
+                name="invoke",
+                metadata={"prompt": prompt, "memory_id": memory_id, "model_name": model_name, "steam_id": steam_id},
+            ) as root_span:
+                root_span.update_trace(session_id=str(uuid4()))
+                handler = StreamingResponseHandler()
+                stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
+        else:
+            handler = StreamingResponseHandler()
+            stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
 
         async def async_stream():
             while True:
