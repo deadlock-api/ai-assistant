@@ -1,13 +1,13 @@
+import json
 import logging
 import os
-import pickle
 import uuid
 from abc import ABC, abstractmethod
 from typing import ClassVar
 from uuid import UUID
 
 import redis
-from smolagents import AgentMemory
+from smolagents import ChatMessage, AgentMemory
 
 LOGGER = logging.getLogger(__name__)
 
@@ -15,11 +15,11 @@ LOGGER = logging.getLogger(__name__)
 class MessageStore(ABC):
     def save_memory(self, memory: AgentMemory) -> UUID:
         LOGGER.debug("Saving memory")
-        memory_id = self._save_memory(memory)
+        memory_id = self._save_memory([m for step in memory.steps for m in step.to_messages()])
         LOGGER.info(f"Saved memory with ID {memory_id}")
         return memory_id
 
-    def get_memory(self, memory_id: UUID) -> AgentMemory | None:
+    def get_memory(self, memory_id: UUID) -> list[ChatMessage] | None:
         LOGGER.debug(f"Retrieving memory with ID {memory_id}")
         memory = self._get_memory(memory_id)
         if memory is None:
@@ -29,23 +29,23 @@ class MessageStore(ABC):
         return memory
 
     @abstractmethod
-    def _save_memory(self, memory: AgentMemory) -> UUID:
+    def _save_memory(self, memory: list[ChatMessage]) -> UUID:
         raise NotImplementedError
 
     @abstractmethod
-    def _get_memory(self, memory_id: UUID) -> AgentMemory:
+    def _get_memory(self, memory_id: UUID) -> list[ChatMessage]:
         raise NotImplementedError
 
 
 class MemoryMessageStore(MessageStore):
-    memory: dict[UUID, AgentMemory] = {}
+    memory: dict[UUID, list[ChatMessage]] = {}
 
-    def _save_memory(self, memory: AgentMemory) -> UUID:
+    def _save_memory(self, memory: list[ChatMessage]) -> UUID:
         memory_id = uuid.uuid4()
         self.memory[memory_id] = memory
         return memory_id
 
-    def _get_memory(self, memory_id: UUID) -> AgentMemory | None:
+    def _get_memory(self, memory_id: UUID) -> list[ChatMessage] | None:
         return self.memory.get(memory_id)
 
 
@@ -61,14 +61,16 @@ class RedisMessageStore(MessageStore):
         self.conn = redis.Redis(host=self.HOST, port=self.PORT, password=self.PASS)
         self.expire = expire
 
-    def _save_memory(self, memory: AgentMemory) -> UUID:
+    def _save_memory(self, memory: list[ChatMessage]) -> UUID:
         memory_id = uuid.uuid4()
-        self.conn.set(str(memory_id), pickle.dumps(memory), ex=self.expire)
+        data = json.dumps([m.dict() for m in memory])
+        self.conn.set(str(memory_id), data, ex=self.expire)
         return memory_id
 
-    def _get_memory(self, memory_id: UUID) -> AgentMemory | None:
+    def _get_memory(self, memory_id: UUID) -> list[ChatMessage] | None:
         try:
-            return pickle.loads(self.conn.get(str(memory_id)))
+            result = json.loads(self.conn.get(str(memory_id)))
+            return [ChatMessage.from_dict(m) for m in result]
         except TypeError as e:
             import traceback
 

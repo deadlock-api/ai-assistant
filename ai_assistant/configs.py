@@ -17,6 +17,8 @@ AUTHORIZED_IMPORTS = [
     "matplotlib",
     "matplotlib.pyplot",
     "seaborn",
+    "string",
+    "random",
     "PIL",
 ]
 TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())

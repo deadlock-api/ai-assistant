@@ -19,7 +19,7 @@ from smolagents import (
     FinalAnswerStep,
     ActionOutput,
     ApiModel,
-    AgentMemory,
+    ChatMessage,
 )
 from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
@@ -180,7 +180,7 @@ class StreamingResponseHandler:
         prompt: str,
         steam_id: int | None,
         model: ApiModel,
-        memory: AgentMemory | None = None,
+        memory: list[ChatMessage] | None = None,
         markdown_syntax: bool = False,
     ):
         try:
@@ -188,6 +188,8 @@ class StreamingResponseHandler:
 Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 {f"Steam ID of Prompting User: {steam_id}" if steam_id else ""}
+
+{f"Conversation History:\n{utils.format_messages_for_prompt(memory)}\n\n" if memory else ""}
 
 {AGENT_INSTRUCTIONS}
 """
@@ -197,11 +199,9 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                 instructions=instructions,
                 additional_authorized_imports=AUTHORIZED_IMPORTS,
             )
-            if memory:
-                agent.memory = memory
             os.makedirs("plots", exist_ok=True)
             with agent:
-                for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
+                for step in agent.run(prompt, stream=True, max_steps=10):
                     try:
                         serialized = self.serialize_step(step)
                     except Exception as e:
