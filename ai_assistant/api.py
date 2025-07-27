@@ -40,6 +40,13 @@ from ai_assistant.tools import ALL_TOOLS
 from ai_assistant.relevancy import RelevancyChecker
 from ai_assistant.conversation_formatter import ConversationFormatter
 
+
+logging.basicConfig(level=logging.INFO)
+LOGGER = logging.getLogger(__name__)
+MESSAGE_STORE = get_message_store()
+RELEVANCY_CHECKER = RelevancyChecker()
+CONVERSATION_FORMATTER = ConversationFormatter()
+
 try:
     from langfuse import get_client
     from openinference.instrumentation.smolagents import SmolagentsInstrumentor
@@ -48,19 +55,13 @@ try:
 
     # Verify connection
     if langfuse.auth_check():
-        print("Langfuse client is authenticated and ready!")
+        LOGGER.info("Langfuse client is authenticated and ready!")
         SmolagentsInstrumentor().instrument()
     else:
-        print("Authentication failed. Please check your credentials and host.")
+        LOGGER.warning("Authentication failed. Please check your credentials and host.")
         langfuse = None
 except ImportError:
     langfuse = None
-
-logging.basicConfig(level=logging.INFO)
-LOGGER = logging.getLogger(__name__)
-MESSAGE_STORE = get_message_store()
-RELEVANCY_CHECKER = RelevancyChecker()
-CONVERSATION_FORMATTER = ConversationFormatter()
 
 app = FastAPI(
     title="AI Assistant API",
