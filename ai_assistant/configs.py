@@ -27,7 +27,8 @@ Available Clickhouse Tables:
 You can use the following imports to generate plots: {AUTHORIZED_IMPORTS}
 Plots must be saved in directory `plots`.
 After you generated a plot, you must include the filename of the plot (including the `plots/` prefix) in your final answer.
-For example: "Plot saved to plots/my_plot.png"
+Add a random string into the filename to avoid overwriting existing plots.
+For example: "Plot saved to plots/my_plot_asojo30023.png"
 
 Format the final answer as simple string.
 """
