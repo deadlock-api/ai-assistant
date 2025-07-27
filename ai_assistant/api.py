@@ -129,9 +129,13 @@ class StreamingResponseHandler:
         markdown_syntax: bool = False,
     ) -> Generator[str, None]:
         try:
-            instructions = f"Current Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n{AGENT_INSTRUCTIONS}"
-            if steam_id:
-                instructions += f"\n\nSteam ID of Prompting User: {steam_id}"
+            instructions = f"""
+Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+{f"Steam ID of Prompting User: {steam_id}" if steam_id else ""}
+
+{AGENT_INSTRUCTIONS}
+"""
             agent = CodeAgent(
                 model=model,
                 tools=ALL_TOOLS,
