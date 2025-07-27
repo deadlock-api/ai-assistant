@@ -114,6 +114,12 @@ class StreamingResponseHandler:
             plots = plots - cls.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
             cls.already_sent_images.update(plots)
+            for plot in plots:
+                try:
+                    os.remove(plot)
+                    LOGGER.info(f"Deleted image: {plot}")
+                except Exception as e:
+                    LOGGER.error(f"Error deleting image: {e}")
             return {"type": "action", "data": [m.dict() for m in step.to_messages()], "plots": base64_plots}
         elif isinstance(step, ActionOutput):
             return {
