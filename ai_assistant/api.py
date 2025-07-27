@@ -62,6 +62,7 @@ try:
         langfuse = None
 except ImportError:
     langfuse = None
+    LOGGER.warning("Langfuse not installed. Tracing and monitoring will not be available.")
 
 app = FastAPI(
     title="AI Assistant API",
