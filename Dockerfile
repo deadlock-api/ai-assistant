@@ -2,7 +2,7 @@ FROM python:3.13-alpine
 
 # Install system dependencies needed for rustup and building native extensions.
 # 'curl' is for downloading rustup, and 'build-base' provides C compilers, etc.
-RUN apk add --no-cache curl build-base
+RUN apk add --no-cache curl build-base tk gcc g++ zlib-dev make python3-dev jpeg-dev musl-dev linux-headers
 
 # Install the Rust toolchain using rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
