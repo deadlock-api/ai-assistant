@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID, uuid4
+from langfuse import observe
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -243,6 +244,7 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 
 @app.get("/invoke")
+@observe
 async def invoke(
     prompt: str = Query(
         ...,
@@ -269,6 +271,17 @@ async def invoke(
             detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
         )
 
+    try:
+        langfuse = get_client()
+        if langfuse.auth_check():
+            langfuse.update_current_trace(
+                name="AI Assistant API",
+                session_id=str(uuid4()),
+                metadata={"prompt": prompt, "memory_id": memory_id, "steam_id": steam_id, "model": model_name},
+            )
+    except Exception as e:
+        LOGGER.error(f"Failed to connect to Langfuse: {e}")
+
     model = MODEL_CONFIGS[model_name]() if model_name else get_model()
 
     memory = None
@@ -288,17 +301,8 @@ async def invoke(
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
 
-        if langfuse:
-            with langfuse.start_as_current_span(
-                name="invoke",
-                metadata={"prompt": prompt, "memory_id": memory_id, "model_name": model_name, "steam_id": steam_id},
-            ) as root_span:
-                root_span.update_trace(session_id=str(uuid4()))
-                handler = StreamingResponseHandler()
-                stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
-        else:
-            handler = StreamingResponseHandler()
-            stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
+        handler = StreamingResponseHandler()
+        stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
 
         async def async_stream():
             while True:
