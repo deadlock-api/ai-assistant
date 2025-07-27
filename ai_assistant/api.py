@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, Generator
 from uuid import UUID, uuid4
@@ -119,9 +118,9 @@ async def replay(
     )
 
 
-@dataclass
 class StreamingResponseHandler:
-    already_sent_images: set[str] = field(default_factory=set)
+    def __init__(self):
+        self.already_sent_images: set[str] = set()
 
     def serialize_step(self, step) -> Dict[str, Any] | None:
         if isinstance(step, ActionStep):
