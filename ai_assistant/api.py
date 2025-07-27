@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, Any, Generator
+from typing import Dict, Any
 from uuid import UUID, uuid4
 
 import uvicorn
@@ -182,7 +182,7 @@ class StreamingResponseHandler:
         model: ApiModel,
         memory: AgentMemory | None = None,
         markdown_syntax: bool = False,
-    ) -> Generator[str, None]:
+    ):
         try:
             instructions = f"""
 Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
