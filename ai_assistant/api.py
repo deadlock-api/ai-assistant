@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Dict, Any, Generator
 from uuid import UUID
@@ -32,6 +33,7 @@ from ai_assistant.configs import (
     get_message_store,
     REPLAY,
     DO_RELEVANCY_CHECK,
+    AUTHORIZED_IMPORTS,
 )
 from ai_assistant.tools import ALL_TOOLS
 from ai_assistant.relevancy import RelevancyChecker
@@ -102,7 +104,13 @@ class StreamingResponseHandler:
     @staticmethod
     def serialize_step(step) -> Dict[str, Any] | None:
         if isinstance(step, ActionStep):
-            return {"type": "action", "data": [m.dict() for m in step.to_messages()]}
+            content = "\n".join(
+                s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
+                for s in step.to_messages()
+            )
+            plots = StreamingResponseHandler.find_plots(content)
+            base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+            return {"type": "action", "data": [m.dict() for m in step.to_messages()], "plots": base64_plots}
         elif isinstance(step, ActionOutput):
             return {
                 "type": "action_output",
@@ -118,6 +126,14 @@ class StreamingResponseHandler:
         elif isinstance(step, FinalAnswerStep):
             return {"type": "final_answer", "data": step.output}
         return None
+
+    @staticmethod
+    def find_plots(output: str) -> set[str]:
+        regex = r"plots/[^/]+\.(?:png|jpg|jpeg|gif|svg)"
+        pattern = re.compile(regex, re.IGNORECASE)
+        matches = set(pattern.findall(output))
+        LOGGER.info(f"Found images: {matches}")
+        return matches
 
     @classmethod
     def generate_stream(
@@ -140,9 +156,11 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                 model=model,
                 tools=ALL_TOOLS,
                 instructions=instructions,
+                additional_authorized_imports=AUTHORIZED_IMPORTS,
             )
             if memory:
                 agent.memory = memory
+            os.makedirs("plots", exist_ok=True)
             with agent:
                 for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
                     try:

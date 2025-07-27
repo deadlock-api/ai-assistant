@@ -1,3 +1,4 @@
+import base64
 import itertools
 import os
 
@@ -89,6 +90,13 @@ def format_messages_for_prompt(messages: list[ChatMessage]) -> str:
         else:
             formatted_parts.append(f"ASSISTANT: {msg.content}")
     return "\n\n".join(formatted_parts)
+
+
+def load_image_as_base64(file: str) -> str | None:
+    if os.path.exists(file):
+        with open(file, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    return None
 
 
 if __name__ == "__main__":

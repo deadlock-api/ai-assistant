@@ -10,10 +10,24 @@ LOGGER = logging.getLogger(__name__)
 
 DO_RELEVANCY_CHECK = os.environ.get("DO_RELEVANCY_CHECK", "false").lower() in ("true", "1", "yes")
 
+AUTHORIZED_IMPORTS = [
+    "numpy",
+    "pandas",
+    "requests",
+    "matplotlib",
+    "matplotlib.pyplot",
+    "seaborn",
+    "PIL",
+]
 TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
 AGENT_INSTRUCTIONS = f"""
 Available Clickhouse Tables:
 {TABLES_CONTEXT}
+
+You can use the following imports to generate plots: {AUTHORIZED_IMPORTS}
+Plots must be saved in directory `plots`.
+After you generated a plot, you must include the filename of the plot (including the `plots/` prefix) in your final answer.
+For example: "Plot saved to plots/my_plot.png"
 
 Format the final answer as simple string.
 """
