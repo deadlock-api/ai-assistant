@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, Generator
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -286,6 +286,9 @@ async def invoke(
     try:
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
+
+        if langfuse:
+            langfuse.update_current_trace(session_id=str(uuid4()))
         handler = StreamingResponseHandler()
         stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
 
