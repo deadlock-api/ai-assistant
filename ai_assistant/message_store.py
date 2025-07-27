@@ -69,5 +69,9 @@ class RedisMessageStore(MessageStore):
     def _get_memory(self, memory_id: UUID) -> AgentMemory | None:
         try:
             return pickle.loads(self.conn.get(str(memory_id)))
-        except TypeError:
+        except TypeError as e:
+            import traceback
+
+            traceback.print_exc()
+            LOGGER.error(f"Failed to retrieve memory with ID {memory_id}: {e}")
             return None
