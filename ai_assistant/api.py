@@ -3,8 +3,9 @@ import json
 import logging
 import os
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Any, Generator, ClassVar
+from typing import Dict, Any, Generator
 from uuid import UUID
 
 import uvicorn
@@ -116,20 +117,20 @@ async def replay(
     )
 
 
+@dataclass
 class StreamingResponseHandler:
-    already_sent_images: ClassVar[set[str]] = set()
+    already_sent_images: set[str] = field(default_factory=set)
 
-    @classmethod
-    def serialize_step(cls, step) -> Dict[str, Any] | None:
+    def serialize_step(self, step) -> Dict[str, Any] | None:
         if isinstance(step, ActionStep):
             content = "\n".join(
                 s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
                 for s in step.to_messages()
             )
-            plots = cls.find_plots(content)
-            plots = plots - cls.already_sent_images
+            plots = self.find_plots(content)
+            plots = plots - self.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
-            cls.already_sent_images.update(plots)
+            self.already_sent_images.update(plots)
             for plot in plots:
                 try:
                     os.remove(plot)
@@ -154,10 +155,10 @@ class StreamingResponseHandler:
                 s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
                 for s in step.to_messages()
             )
-            plots = cls.find_plots(content)
-            plots = plots - cls.already_sent_images
+            plots = self.find_plots(content)
+            plots = plots - self.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
-            cls.already_sent_images.update(plots)
+            self.already_sent_images.update(plots)
             for plot in plots:
                 try:
                     os.remove(plot)
@@ -175,9 +176,8 @@ class StreamingResponseHandler:
         LOGGER.info(f"Found images: {matches}")
         return matches
 
-    @classmethod
     def generate_stream(
-        cls,
+        self,
         prompt: str,
         steam_id: int | None,
         model: ApiModel,
@@ -204,8 +204,11 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
             with agent:
                 for step in agent.run(prompt, stream=True, reset=False, max_steps=10):
                     try:
-                        serialized = cls.serialize_step(step)
+                        serialized = self.serialize_step(step)
                     except Exception as e:
+                        import traceback
+
+                        traceback.print_exc()
                         LOGGER.error(f"Error serializing step: {e}")
                         continue
                     if serialized:
@@ -223,12 +226,18 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                 yield f"event: agentStep\ndata: {json.dumps(formatted_response)}\n\n"
                 LOGGER.info("Formatted conversation response generated successfully")
             except Exception as e:
+                import traceback
+
+                traceback.print_exc()
                 LOGGER.error(f"Error generating formatted response: {e}")
                 # Continue without formatted response if it fails
 
             memory_id = MESSAGE_STORE.save_memory(agent.memory)
             yield f"event: memoryId\ndata: {memory_id}\n\n"
         except Exception as e:
+            import traceback
+
+            traceback.print_exc()
             LOGGER.error(f"Error during agent execution: {e}")
             yield f"event: error\ndata: {e}\n\n"
         yield "FINISHED"
@@ -279,7 +288,8 @@ async def invoke(
     try:
         if model_name and model_name.startswith("gemini"):
             model.api_key = utils.get_gemini_api_key()
-        stream = StreamingResponseHandler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
+        handler = StreamingResponseHandler()
+        stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
 
         async def async_stream():
             while True:
