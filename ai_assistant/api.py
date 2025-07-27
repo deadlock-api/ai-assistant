@@ -153,11 +153,7 @@ class StreamingResponseHandler:
         elif isinstance(step, ChatMessageStreamDelta):
             return {"type": "delta", "data": {"content": step.content}}
         elif isinstance(step, FinalAnswerStep):
-            content = "\n".join(
-                s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
-                for s in step.to_messages()
-            )
-            plots = self.find_plots(content)
+            plots = self.find_plots(step.output)
             plots = plots - self.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
             self.already_sent_images.update(plots)
