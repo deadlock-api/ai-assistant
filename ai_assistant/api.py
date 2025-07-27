@@ -150,7 +150,21 @@ class StreamingResponseHandler:
         elif isinstance(step, ChatMessageStreamDelta):
             return {"type": "delta", "data": {"content": step.content}}
         elif isinstance(step, FinalAnswerStep):
-            return {"type": "final_answer", "data": step.output}
+            content = "\n".join(
+                s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
+                for s in step.to_messages()
+            )
+            plots = cls.find_plots(content)
+            plots = plots - cls.already_sent_images
+            base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+            cls.already_sent_images.update(plots)
+            for plot in plots:
+                try:
+                    os.remove(plot)
+                    LOGGER.info(f"Deleted image: {plot}")
+                except Exception as e:
+                    LOGGER.error(f"Error deleting image: {e}")
+            return {"type": "final_answer", "data": step.output, "plots": base64_plots}
         return None
 
     @staticmethod
