@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import Dict, Any, Generator
+from typing import Dict, Any, Generator, ClassVar
 from uuid import UUID
 
 import uvicorn
@@ -101,19 +101,19 @@ async def replay(
 
 
 class StreamingResponseHandler:
-    already_sent_images = set()
+    already_sent_images: ClassVar[set[str]] = set()
 
-    @staticmethod
-    def serialize_step(step) -> Dict[str, Any] | None:
+    @classmethod
+    def serialize_step(cls, step) -> Dict[str, Any] | None:
         if isinstance(step, ActionStep):
             content = "\n".join(
                 s.content if isinstance(s.content, str) else "\n".join(c.get("text", "") for c in s.content)
                 for s in step.to_messages()
             )
-            plots = StreamingResponseHandler.find_plots(content)
-            plots = plots - StreamingResponseHandler.already_sent_images
+            plots = cls.find_plots(content)
+            plots = plots - cls.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
-            StreamingResponseHandler.already_sent_images.update(plots)
+            cls.already_sent_images.update(plots)
             return {"type": "action", "data": [m.dict() for m in step.to_messages()], "plots": base64_plots}
         elif isinstance(step, ActionOutput):
             return {
