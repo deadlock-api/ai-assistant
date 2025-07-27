@@ -2,7 +2,7 @@ FROM python:3.13
 
 # Install system dependencies needed for rustup and building native extensions.
 # 'curl' is for downloading rustup, and 'build-base' provides C compilers, etc.
-RUN apt-get update && apt-get install -y curl build-essential tk-dev gcc g++ zlib1g-dev make python3-dev libjpeg-dev python3-tk
+RUN apt-get update && apt-get install -y curl build-essential tk-dev gcc g++ zlib1g-dev make python3-dev libjpeg-dev python3-tk python3-gdbm
 
 # Install the Rust toolchain using rustup
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
