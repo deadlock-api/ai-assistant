@@ -132,6 +132,7 @@ class StreamingResponseHandler:
             plots = self.find_plots(content)
             plots = plots - self.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+            base64_plots = [b64 for b64 in base64_plots if b64 is not None]
             self.already_sent_images.update(plots)
             for plot in plots:
                 try:
@@ -156,6 +157,7 @@ class StreamingResponseHandler:
             plots = self.find_plots(step.output)
             plots = plots - self.already_sent_images
             base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+            base64_plots = [b64 for b64 in base64_plots if b64 is not None]
             self.already_sent_images.update(plots)
             for plot in plots:
                 try:
