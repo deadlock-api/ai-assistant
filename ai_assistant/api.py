@@ -6,7 +6,6 @@ import re
 from datetime import datetime
 from typing import Dict, Any
 from uuid import UUID, uuid4
-from langfuse import observe
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -176,7 +175,6 @@ class StreamingResponseHandler:
         LOGGER.info(f"Found images: {matches}")
         return matches
 
-    @observe
     def generate_stream(
         self,
         prompt: str,
