@@ -176,6 +176,7 @@ class StreamingResponseHandler:
         LOGGER.info(f"Found images: {matches}")
         return matches
 
+    @observe
     def generate_stream(
         self,
         prompt: str,
@@ -244,7 +245,6 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 
 @app.get("/invoke")
-@observe
 async def invoke(
     prompt: str = Query(
         ...,
