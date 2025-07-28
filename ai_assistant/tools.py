@@ -85,7 +85,11 @@ def hero_name_to_id(hero_name: str) -> int | str:
     LIMIT 1
     """
     try:
-        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
+        return requests.get(
+            "https://api.deadlock-api.com/v1/sql",
+            params={"query": sql},
+            headers={"X-API-Key": os.environ.get("DEADLOCK_API_KEY", "")},
+        ).json()[0]["id"]
     except (KeyError, IndexError):
         return "Hero not found"
 
@@ -128,7 +132,11 @@ def item_name_to_id(item_name: str) -> int | str:
     LIMIT 1
     """
     try:
-        return requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()[0]["id"]
+        return requests.get(
+            "https://api.deadlock-api.com/v1/sql",
+            params={"query": sql},
+            headers={"X-API-Key": os.environ.get("DEADLOCK_API_KEY", "")},
+        ).json()[0]["id"]
     except (KeyError, IndexError):
         return "Item not found"
 
@@ -166,7 +174,11 @@ def clickhouse_query(sql: str) -> list[dict]:
     LOGGER.info(f"clickhouse_query({sql})")
     if os.environ.get("USE_GLOT", "true") == "true":
         sql = sqlglot.transpile(sql, write="clickhouse")[0]
-    results = requests.get("https://api.deadlock-api.com/v1/sql", params={"query": sql}).json()
+    results = requests.get(
+        "https://api.deadlock-api.com/v1/sql",
+        params={"query": sql},
+        headers={"X-API-Key": os.environ.get("DEADLOCK_API_KEY", "")},
+    ).json()
     if len(results) == 0:
         raise Exception("No results found!")
     return results
