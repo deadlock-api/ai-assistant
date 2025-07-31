@@ -97,6 +97,9 @@ async def replay(
     ),
     memory_id: UUID | None = Query(None),
     steam_id: int | None = Query(None),
+    context_steam_ids: str | None = Query(
+        None, description="Comma-separated list of Steam IDs to include in the context"
+    ),
     model: str | None = Query(None, description="Model to use for inference"),
     markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
     sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
@@ -180,6 +183,7 @@ class StreamingResponseHandler:
         prompt: str,
         steam_id: int | None,
         model: ApiModel,
+        context_steam_ids: str | None = None,
         memory: list[ChatMessage] | None = None,
         markdown_syntax: bool = False,
     ):
@@ -188,6 +192,7 @@ class StreamingResponseHandler:
 Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 {f"Steam ID of Prompting User: {steam_id}" if steam_id else ""}
+{f"Context Steam IDs: {context_steam_ids}" if context_steam_ids else ""}
 
 {f"Conversation History:\n{utils.format_messages_for_prompt(memory)}\n\n" if memory else ""}
 
@@ -252,6 +257,9 @@ async def invoke(
     ),
     memory_id: UUID | None = Query(None),
     steam_id: int | None = Query(None),
+    context_steam_ids: str | None = Query(
+        None, description="Comma-separated list of Steam IDs to include in the context"
+    ),
     model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: str | None = Query(None, description="API-Key"),
     markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
@@ -275,7 +283,13 @@ async def invoke(
             langfuse.update_current_trace(
                 name="AI Assistant API",
                 session_id=str(uuid4()),
-                metadata={"prompt": prompt, "memory_id": memory_id, "steam_id": steam_id, "model": model_name},
+                metadata={
+                    "prompt": prompt,
+                    "memory_id": memory_id,
+                    "steam_id": steam_id,
+                    "context_steam_ids": context_steam_ids,
+                    "model": model_name,
+                },
             )
     except Exception as e:
         LOGGER.error(f"Failed to connect to Langfuse: {e}")
@@ -300,7 +314,7 @@ async def invoke(
             model.api_key = utils.get_gemini_api_key()
 
         handler = StreamingResponseHandler()
-        stream = handler.generate_stream(prompt.strip(), steam_id, model, memory, markdown_syntax)
+        stream = handler.generate_stream(prompt.strip(), steam_id, model, context_steam_ids, memory, markdown_syntax)
 
         async def async_stream():
             while True:
