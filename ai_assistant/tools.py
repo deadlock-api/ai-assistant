@@ -2,6 +2,7 @@ import logging
 import os
 
 import Levenshtein
+import pywikibot
 import requests
 import sqlglot
 from smolagents import tool
@@ -184,6 +185,50 @@ def clickhouse_query(sql: str) -> list[dict]:
     return results
 
 
+deadlockwiki_site = pywikibot.Site(url="https://deadlock.wiki/api.php")
+page = pywikibot.Page(deadlockwiki_site, "Bebop")
+
+
+@tool
+def search_wiki_pages(query: str, limit: int = 10) -> list[str]:
+    """
+    Searches for pages on the Deadlock Wiki.
+
+    Args:
+        query (str): The search term.
+        limit (int): The maximum number of results to return.
+
+    Returns:
+        List[str]: A list of page titles that match the query.
+    """
+    try:
+        search_results = deadlockwiki_site.search(query, total=limit)
+        return [page.title() for page in search_results]
+    except Exception as e:
+        return [f"An error occurred during search: {e}"]
+
+
+@tool
+def read_wiki_page(title: str) -> str:
+    """
+    Reads the content of a page from the Deadlock Wiki.
+
+    Args:
+        title (str): The title of the page to read.
+
+    Returns:
+        str: The content of the page, or an error message if the page does not exist.
+    """
+    try:
+        page = pywikibot.Page(deadlockwiki_site, title)
+        if page.exists():
+            return page.text
+        else:
+            return f"Page with title '{title}' does not exist."
+    except Exception as e:
+        return f"An error occurred while reading the page: {e}"
+
+
 ALL_TOOLS = [
     hero_name_to_id,
     hero_id_to_name,
@@ -193,4 +238,6 @@ ALL_TOOLS = [
     badge_to_rank,
     search_steam_profile,
     clickhouse_query,
+    search_wiki_pages,
+    read_wiki_page,
 ]
