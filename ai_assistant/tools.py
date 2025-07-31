@@ -236,7 +236,7 @@ def used_tools(memory: AgentMemory) -> list[ToolCall]:
 
 def get_wiki_references(memory: AgentMemory) -> list[str]:
     return [
-        f"[{call.arguments['title']}](https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])})"
+        f"[{call.arguments['title']}](<https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])}>)"
         for call in used_tools(memory)
         if call.name == "read_wiki_page"
     ]
