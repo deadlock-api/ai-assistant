@@ -156,17 +156,27 @@ class StreamingResponseHandler:
         elif isinstance(step, ChatMessageStreamDelta):
             return {"type": "delta", "data": {"content": step.content}}
         elif isinstance(step, FinalAnswerStep):
-            plots = self.find_plots(step.output)
-            plots = plots - self.already_sent_images
-            base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
-            base64_plots = [b64 for b64 in base64_plots if b64 is not None]
-            self.already_sent_images.update(plots)
-            for plot in plots:
-                try:
-                    os.remove(plot)
-                    LOGGER.info(f"Deleted image: {plot}")
-                except Exception as e:
-                    LOGGER.error(f"Error deleting image: {e}")
+            try:
+                text = (
+                    step.output if isinstance(step.output, str) else "\n".join(c.get("text", "") for c in step.output)
+                )
+                plots = self.find_plots(text)
+                plots = plots - self.already_sent_images
+                base64_plots = [utils.load_image_as_base64(plot) for plot in plots]
+                base64_plots = [b64 for b64 in base64_plots if b64 is not None]
+                self.already_sent_images.update(plots)
+                for plot in plots:
+                    try:
+                        os.remove(plot)
+                        LOGGER.info(f"Deleted image: {plot}")
+                    except Exception as e:
+                        LOGGER.error(f"Error deleting image: {e}")
+            except Exception as e:
+                import traceback
+
+                traceback.print_exc()
+                LOGGER.error(f"Error finding plots: {e}")
+                base64_plots = []
             return {"type": "final_answer", "data": step.output, "plots": base64_plots}
         return None
 
