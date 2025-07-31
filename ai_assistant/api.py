@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import TypeAdapter
 from scalar_fastapi import get_scalar_api_reference
 from smolagents import (
     CodeAgent,
@@ -222,7 +223,8 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                         LOGGER.debug(f"Skipping step: {type(step)}")
                 wiki_references = tools.get_wiki_references(agent.memory)
                 if wiki_references:
-                    yield f"event: wikiReferences\ndata: {json.dumps(wiki_references)}\n\n"
+                    ta = TypeAdapter(list[tools.WikiReference])
+                    yield f"event: wikiReferences\ndata: {ta.dump_json(wiki_references).decode('utf-8')}\n\n"
 
             # Generate formatted conversation response using the light model
             try:

@@ -6,6 +6,7 @@ import Levenshtein
 import pywikibot
 import requests
 import sqlglot
+from pydantic import BaseModel
 from smolagents import tool, AgentMemory, ToolCall, ActionStep
 
 LOGGER = logging.getLogger(__name__)
@@ -234,9 +235,17 @@ def used_tools(memory: AgentMemory) -> list[ToolCall]:
     return [t for s in memory.steps if isinstance(s, ActionStep) for t in s.tool_calls]
 
 
-def get_wiki_references(memory: AgentMemory) -> list[str]:
+class WikiReference(BaseModel):
+    title: str
+    url: str
+
+
+def get_wiki_references(memory: AgentMemory) -> list[WikiReference]:
     return [
-        f"[{call.arguments['title']}](<https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])}>)"
+        WikiReference(
+            title=call.arguments["title"],
+            url=f"https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])}",
+        )
         for call in used_tools(memory)
         if call.name == "read_wiki_page"
     ]
