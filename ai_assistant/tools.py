@@ -1,11 +1,12 @@
 import logging
 import os
+from urllib.parse import urlencode
 
 import Levenshtein
 import pywikibot
 import requests
 import sqlglot
-from smolagents import tool
+from smolagents import tool, AgentMemory, ToolCall, ActionStep
 
 LOGGER = logging.getLogger(__name__)
 
@@ -227,6 +228,18 @@ def read_wiki_page(title: str) -> str:
             return f"Page with title '{title}' does not exist."
     except Exception as e:
         return f"An error occurred while reading the page: {e}"
+
+
+def used_tools(memory: AgentMemory) -> list[ToolCall]:
+    return [t for s in memory.steps if isinstance(s, ActionStep) for t in s.tool_calls]
+
+
+def get_wiki_references(memory: AgentMemory) -> list[str]:
+    return [
+        f"[{call.arguments['title']}](https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])})"
+        for call in used_tools(memory)
+        if call.name == "read_wiki_page"
+    ]
 
 
 ALL_TOOLS = [

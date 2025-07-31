@@ -25,7 +25,7 @@ from starlette.responses import RedirectResponse
 from starlette.status import HTTP_308_PERMANENT_REDIRECT
 from starlette.middleware.cors import CORSMiddleware
 
-from ai_assistant import utils
+from ai_assistant import utils, tools
 from ai_assistant.configs import (
     MODEL_CONFIGS,
     AGENT_INSTRUCTIONS,
@@ -35,7 +35,6 @@ from ai_assistant.configs import (
     DO_RELEVANCY_CHECK,
     AUTHORIZED_IMPORTS,
 )
-from ai_assistant.tools import ALL_TOOLS
 from ai_assistant.relevancy import RelevancyChecker
 from ai_assistant.conversation_formatter import ConversationFormatter
 
@@ -200,7 +199,7 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 """
             agent = CodeAgent(
                 model=model,
-                tools=ALL_TOOLS,
+                tools=tools.ALL_TOOLS,
                 instructions=instructions,
                 additional_authorized_imports=AUTHORIZED_IMPORTS,
             )
@@ -221,6 +220,9 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                         yield f"event: agentStep\ndata: {data}\n\n"
                     else:
                         LOGGER.debug(f"Skipping step: {type(step)}")
+                wiki_references = tools.get_wiki_references(agent.memory)
+                if wiki_references:
+                    yield f"event: wikiReferences\ndata: {json.dumps(wiki_references)}\n\n"
 
             # Generate formatted conversation response using the light model
             try:
