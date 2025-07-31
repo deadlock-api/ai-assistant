@@ -1,6 +1,7 @@
 import logging
 import os
-from urllib.parse import urlencode
+import re
+import urllib.parse
 
 import Levenshtein
 import pywikibot
@@ -239,16 +240,23 @@ class WikiReference(BaseModel):
     title: str
     url: str
 
+    @classmethod
+    def from_title(cls, title: str) -> "WikiReference":
+        return cls(title=title, url=f"https://deadlock.wiki/{urllib.parse.quote_plus(title)}")
+
+    def __hash__(self):
+        return hash(self.title)
+
 
 def get_wiki_references(memory: AgentMemory) -> list[WikiReference]:
-    return [
-        WikiReference(
-            title=call.arguments["title"],
-            url=f"https://deadlock.wiki/wiki/{urlencode(call.arguments['title'])}",
-        )
-        for call in used_tools(memory)
-        if call.name == "read_wiki_page"
-    ]
+    pattern = r"read_wiki_page\((?:title=)?\"([^\"]+)\"\)"
+    return list(
+        {
+            WikiReference.from_title(match)
+            for tool_call in used_tools(memory)
+            for match in re.findall(pattern, tool_call.arguments)
+        }
+    )
 
 
 ALL_TOOLS = [
