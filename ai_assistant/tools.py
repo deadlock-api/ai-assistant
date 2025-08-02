@@ -242,7 +242,7 @@ class WikiReference(BaseModel):
 
     @classmethod
     def from_title(cls, title: str) -> "WikiReference":
-        return cls(title=title, url=f"https://deadlock.wiki/{urllib.parse.quote_plus(title)}")
+        return cls(title=title, url=f"https://deadlock.wiki/{urllib.parse.quote_plus(title.replace(' ', '_'))}")
 
     def __hash__(self):
         return hash(self.title)
