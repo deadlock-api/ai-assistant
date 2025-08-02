@@ -233,7 +233,7 @@ def read_wiki_page(title: str) -> str:
 
 
 def used_tools(memory: AgentMemory) -> list[ToolCall]:
-    return [t for s in memory.steps if isinstance(s, ActionStep) for t in s.tool_calls]
+    return [t for s in memory.steps if isinstance(s, ActionStep) for t in (s.tool_calls or [])]
 
 
 class WikiReference(BaseModel):
