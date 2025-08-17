@@ -3,6 +3,7 @@ import os
 
 from smolagents import LiteLLMModel, InferenceClientModel, ApiModel
 
+from ai_assistant import utils
 from ai_assistant.message_store import MessageStore, RedisMessageStore, MemoryMessageStore
 from ai_assistant.utils import format_table_schema, list_clickhouse_tables
 
@@ -23,6 +24,8 @@ AUTHORIZED_IMPORTS = [
 ]
 TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
 AGENT_INSTRUCTIONS = f"""
+All Heroes: {", ".join(utils.list_heroes())}
+
 Available Clickhouse Tables:
 {TABLES_CONTEXT}
 
