@@ -1,9 +1,17 @@
 import base64
 import itertools
+import logging
 import os
 
+import redis
 import requests
 from smolagents import AgentMemory, ChatMessage
+
+LOGGER = logging.getLogger(__name__)
+
+HOST = os.environ.get("REDIS_HOST", "localhost")
+PORT = os.environ.get("REDIS_PORT", 6379)
+PASS = os.environ.get("REDIS_PASSWORD")
 
 EXCLUDED_TABLES = {
     "active_matches",
@@ -97,6 +105,30 @@ def load_image_as_base64(file: str) -> str | None:
         with open(file, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
     return None
+
+
+def is_valid_captcha_token(captcha_token: str, remoteip: str | None = None) -> bool:
+    conn = redis.Redis(host=HOST, port=PORT, password=PASS)
+    if conn.get(captcha_token) is not None:
+        return True
+    is_valid = validate_captcha(captcha_token, remoteip)
+    if is_valid:
+        conn.set(captcha_token, 1, ex=7 * 24 * 60 * 60)  # 7 days
+    return is_valid
+
+
+def validate_captcha(captcha_token: str, remoteip: str | None = None) -> bool:
+    secret = os.environ.get("CAPTCHA_SECRET")
+    if not secret:
+        return True
+    url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    try:
+        response = requests.post(url, data={"secret": secret, "response": captcha_token, "remoteip": remoteip})
+        response.raise_for_status()
+        return response.json()["success"]
+    except Exception:
+        LOGGER.warning("Captcha validation failed")
+        return False
 
 
 if __name__ == "__main__":

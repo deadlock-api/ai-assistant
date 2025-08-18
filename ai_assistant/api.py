@@ -8,7 +8,7 @@ from typing import Dict, Any
 from uuid import UUID, uuid4
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import TypeAdapter
 from scalar_fastapi import get_scalar_api_reference
@@ -263,6 +263,7 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 @app.get("/invoke")
 async def invoke(
+    request: Request,
     prompt: str = Query(
         ...,
         min_length=1,
@@ -276,11 +277,22 @@ async def invoke(
     ),
     model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: str | None = Query(None, description="API-Key"),
+    captcha_token: str | None = Query(None, description="Captcha Token"),
     markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
 ):
-    if valid_api_keys := os.environ.get("API_KEYS"):
-        if valid_api_keys and api_key not in valid_api_keys.split(","):
-            raise HTTPException(status_code=401, detail="Unauthorized")
+    remoteip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For")
+
+    def is_authorized() -> bool:
+        if valid_api_keys := os.environ.get("API_KEYS"):
+            if valid_api_keys and api_key not in valid_api_keys.split(","):
+                return False
+        if captcha_token:
+            if not utils.is_valid_captcha_token(captcha_token, remoteip):
+                return False
+        return True
+
+    if not is_authorized():
+        raise HTTPException(status_code=401, detail="Unauthorized")
 
     if not prompt or not prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
