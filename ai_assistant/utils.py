@@ -128,9 +128,10 @@ def validate_captcha(captcha_token: str, remoteip: str | None = None) -> bool:
             data["remoteip"] = remoteip
         response = requests.post(url, data=data)
         response.raise_for_status()
+        LOGGER.debug(f"Captcha validation response: {response.json()}")
         return response.json()["success"]
-    except Exception:
-        LOGGER.warning("Captcha validation failed")
+    except Exception as e:
+        LOGGER.warning(f"Captcha validation failed: {e}")
         return False
 
 
