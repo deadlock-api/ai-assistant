@@ -108,6 +108,7 @@ def load_image_as_base64(file: str) -> str | None:
 
 
 def is_valid_captcha_token(captcha_token: str, remoteip: str | None = None) -> bool:
+    LOGGER.info(f"Validating captcha token {captcha_token}")
     conn = redis.Redis(host=HOST, port=PORT, password=PASS)
     if conn.get(captcha_token) is not None:
         return True
@@ -122,10 +123,10 @@ def validate_captcha(captcha_token: str, remoteip: str | None = None) -> bool:
     if not secret:
         return True
     url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+    data = {"secret": secret, "response": captcha_token}
+    if remoteip:
+        data["remoteip"] = remoteip
     try:
-        data = {"secret": secret, "response": captcha_token}
-        if remoteip:
-            data["remoteip"] = remoteip
         response = requests.post(url, data=data)
         response.raise_for_status()
         LOGGER.debug(f"Captcha validation response: {response.json()}")

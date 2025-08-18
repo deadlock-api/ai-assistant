@@ -281,12 +281,12 @@ async def invoke(
 ):
     def is_authorized() -> bool:
         if valid_api_keys := os.environ.get("API_KEYS"):
-            if valid_api_keys and api_key not in valid_api_keys.split(","):
-                return False
+            if valid_api_keys and api_key in valid_api_keys.split(","):
+                return True
         if captcha_token:
-            if not utils.is_valid_captcha_token(captcha_token):
-                return False
-        return True
+            if utils.is_valid_captcha_token(captcha_token):
+                return True
+        return False
 
     if not is_authorized():
         raise HTTPException(status_code=401, detail="Unauthorized")
