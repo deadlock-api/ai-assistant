@@ -101,7 +101,7 @@ async def replay(
         None, description="Comma-separated list of Steam IDs to include in the context"
     ),
     model: str | None = Query(None, description="Model to use for inference"),
-    markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
+    markdown_syntax: bool | None = Query(True, description="Result Markdown Syntax"),
     sleep_time: str | None = Query(None, description="Sleep time in seconds between messages"),
 ):
     async def generator():
@@ -195,7 +195,7 @@ class StreamingResponseHandler:
         model: ApiModel,
         context_steam_ids: str | None = None,
         memory: list[ChatMessage] | None = None,
-        markdown_syntax: bool = False,
+        markdown_syntax: bool = True,
     ):
         try:
             instructions = f"""
@@ -277,7 +277,7 @@ async def invoke(
     model_name: str | None = Query(None, description="Model to use for inference"),
     api_key: str | None = Query(None, description="API-Key"),
     captcha_token: str | None = Query(None, description="Captcha Token"),
-    markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
+    markdown_syntax: bool | None = Query(True, description="Result Markdown Syntax"),
 ):
     def is_authorized() -> bool:
         if valid_api_keys := os.environ.get("API_KEYS"):
