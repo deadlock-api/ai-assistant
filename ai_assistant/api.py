@@ -40,7 +40,7 @@ from ai_assistant.relevancy import RelevancyChecker
 from ai_assistant.conversation_formatter import ConversationFormatter
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 LOGGER = logging.getLogger(__name__)
 MESSAGE_STORE = get_message_store()
 RELEVANCY_CHECKER = RelevancyChecker()
