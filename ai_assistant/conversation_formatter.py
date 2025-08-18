@@ -63,7 +63,7 @@ class ConversationFormatter:
                 f"{CONVERSATION_FORMATTER_SYSTEM_PROMPT}\n\n"
                 f"CONVERSATION HISTORY:\n{formatted_conversation}\n\n"
                 "Based on this complete conversation history, generate a comprehensive, "
-                f"{'Discord Markdown' if markdown else 'plain text'} formatted response that synthesizes all the information "
+                f"{'Discord Markdown' if markdown else 'plain text (no markdown syntax)'} formatted response that synthesizes all the information "
                 "and provide a polished answer with explanatory context. "
                 "Keep it short, simple, and to the point!"
             )
