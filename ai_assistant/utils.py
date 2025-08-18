@@ -123,7 +123,10 @@ def validate_captcha(captcha_token: str, remoteip: str | None = None) -> bool:
         return True
     url = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
     try:
-        response = requests.post(url, data={"secret": secret, "response": captcha_token, "remoteip": remoteip})
+        data = {"secret": secret, "response": captcha_token}
+        if remoteip:
+            data["remoteip"] = remoteip
+        response = requests.post(url, data=data)
         response.raise_for_status()
         return response.json()["success"]
     except Exception:

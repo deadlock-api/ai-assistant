@@ -8,7 +8,7 @@ from typing import Dict, Any
 from uuid import UUID, uuid4
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import TypeAdapter
 from scalar_fastapi import get_scalar_api_reference
@@ -263,7 +263,6 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 
 @app.get("/invoke")
 async def invoke(
-    request: Request,
     prompt: str = Query(
         ...,
         min_length=1,
@@ -280,14 +279,12 @@ async def invoke(
     captcha_token: str | None = Query(None, description="Captcha Token"),
     markdown_syntax: bool | None = Query(False, description="Result Markdown Syntax"),
 ):
-    remoteip = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For")
-
     def is_authorized() -> bool:
         if valid_api_keys := os.environ.get("API_KEYS"):
             if valid_api_keys and api_key not in valid_api_keys.split(","):
                 return False
         if captcha_token:
-            if not utils.is_valid_captcha_token(captcha_token, remoteip):
+            if not utils.is_valid_captcha_token(captcha_token):
                 return False
         return True
 
