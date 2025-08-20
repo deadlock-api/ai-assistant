@@ -5,7 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
     "python-levenshtein>=0.27.1",
-    "smolagents[litellm,telemetry]>=1.19.0",
+    "smolagents[litellm,telemetry]>=1.21.2",
     "sqlglot>=27.0.0",
     "fastapi>=0.116.1",
     "scalar-fastapi>=1.2.1",
@@ -21,8 +21,8 @@ dependencies = [
     "opentelemetry-sdk>=1.35.0",
     "opentelemetry-exporter-otlp>=1.35.0",
     "openinference-instrumentation-smolagents>=0.1.14",
-    "langfuse>=3.2.1",
-    "pywikibot>=10.2.0",
+    "langfuse>=3.2.8",
+    "pywikibot>=10.3.2",
 ]
 
 [dependency-groups]
