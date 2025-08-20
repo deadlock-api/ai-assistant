@@ -182,7 +182,7 @@ class StreamingResponseHandler:
 
     @staticmethod
     def find_plots(output: str) -> set[str]:
-        regex = r"plots/[^/]+\.(?:png|jpg|jpeg|gif|svg)"
+        regex = r"plots/[^/]+\.(?:png|gif|svg)"
         pattern = re.compile(regex, re.IGNORECASE)
         matches = set(pattern.findall(output))
         LOGGER.info(f"Found images: {matches}")
