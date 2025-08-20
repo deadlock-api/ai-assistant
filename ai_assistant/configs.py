@@ -5,7 +5,7 @@ from smolagents import LiteLLMModel, InferenceClientModel, ApiModel
 
 from ai_assistant import utils
 from ai_assistant.message_store import MessageStore, RedisMessageStore, MemoryMessageStore
-from ai_assistant.utils import format_table_schema, list_clickhouse_tables
+from ai_assistant.utils import formatted_table_schema, list_clickhouse_tables
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ AUTHORIZED_IMPORTS = [
     "random",
     "PIL",
 ]
-TABLES_CONTEXT = "\n\n".join(format_table_schema(table) for table in list_clickhouse_tables())
+TABLES_CONTEXT = "\n\n".join(formatted_table_schema(table) for table in list_clickhouse_tables())
 AGENT_INSTRUCTIONS = f"""
 All Heroes: {", ".join(utils.list_heroes())}
 

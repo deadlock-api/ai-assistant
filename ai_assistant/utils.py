@@ -26,17 +26,22 @@ EXCLUDED_COLUMN_PREFIXES = {
     "match_mode",
     "game_mode",
     "match_outcome",
-    "death_details",
     "max_",
     "book_reward",
     "objectives",
-    "personastate",
+    "hero_xp",
+    "hero_equips",
+    "stats_type_stat",
+    "rewards_eligible",
+    "items.flags",
     "new_player_pool",
     "is_high_skill_range_parties",
     "low_pri_pool",
     "game_mode_version",
+    "personastate",
     "profileurl",
     "avatar",
+    "created_at",
 }
 
 
@@ -44,20 +49,20 @@ def list_clickhouse_tables() -> list[str]:
     return [t for t in requests.get("https://api.deadlock-api.com/v1/sql/tables").json() if t not in EXCLUDED_TABLES]
 
 
-def schema(table: str) -> dict[str, str]:
-    return {
-        column["name"]: column["type"]
-        for column in requests.get(f"https://api.deadlock-api.com/v1/sql/tables/{table}/schema").json()
-    }
+def formatted_table_schema(table: str) -> str:
+    def get_column_info(column: dict) -> str:
+        info = f"{column['name']} {column['type']}"
+        if column.get("comment"):
+            info += f" COMMENT {column['comment']}"
+        return info
 
-
-def format_table_schema(table: str) -> str:
-    columns = [
-        f"{name}: {type_}"
-        for name, type_ in schema(table).items()
-        if not any(name.startswith(prefix) for prefix in EXCLUDED_COLUMN_PREFIXES)
-    ]
-    return f"## Table: {table}\n" + "\n".join(columns)
+    table_schema = requests.get(f"https://api.deadlock-api.com/v1/sql/tables/{table}/schema").json()
+    columns = "\n".join(
+        get_column_info(col)
+        for col in table_schema
+        if col["name"] and not any(col["name"].startswith(prefix) for prefix in EXCLUDED_COLUMN_PREFIXES)
+    )
+    return f"## Table: {table}\n{columns}"
 
 
 def list_heroes() -> list[str]:
@@ -139,4 +144,4 @@ def validate_captcha(captcha_token: str, remoteip: str | None = None) -> bool:
 if __name__ == "__main__":
     tables = list_clickhouse_tables()
     for table in tables:
-        print(format_table_schema(table))
+        print(formatted_table_schema(table))
