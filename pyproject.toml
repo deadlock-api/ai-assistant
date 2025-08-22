@@ -7,9 +7,9 @@ dependencies = [
     "python-levenshtein>=0.27.1",
     "smolagents[litellm,telemetry]>=1.21.2",
     "sqlglot>=27.0.0",
-    "fastapi>=0.116.1",
+    "fastapi>=0.115.14",
     "scalar-fastapi>=1.2.1",
-    "uvicorn>=0.35.0",
+    "uvicorn>=0.29.0",
     "redis>=6.2.0",
     "uuid>=1.30",
     "google-genai>=1.26.0",
@@ -23,6 +23,7 @@ dependencies = [
     "openinference-instrumentation-smolagents>=0.1.14",
     "langfuse>=3.2.8",
     "pywikibot>=10.3.2",
+    "litellm[proxy]>=1.68.0",
 ]
 
 [dependency-groups]
