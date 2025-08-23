@@ -11,7 +11,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import TypeAdapter
-from scalar_fastapi import get_scalar_api_reference
+from scalar_fastapi import get_scalar_api_reference, Theme
 from smolagents import (
     CodeAgent,
     ActionStep,
@@ -84,7 +84,7 @@ def redirect_to_docs():
 
 @app.get("/scalar", include_in_schema=False)
 async def scalar_html():
-    return get_scalar_api_reference(openapi_url=app.openapi_url, title=app.title, scalar_theme="default")
+    return get_scalar_api_reference(openapi_url=app.openapi_url, title=app.title, theme=Theme.ALTERNATE)
 
 
 @app.get("/replay")
