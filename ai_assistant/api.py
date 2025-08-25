@@ -261,6 +261,13 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         yield "FINISHED"
 
 
+@app.post("/validate-captcha")
+async def validate_captcha(captcha_token: str = Query(..., description="Captcha Token")):
+    if utils.is_valid_captcha_token(captcha_token):
+        return {"valid": True}
+    return {"valid": False}
+
+
 @app.get("/invoke")
 async def invoke(
     prompt: str = Query(
