@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, BaseModel
 from scalar_fastapi import get_scalar_api_reference, Theme
 from smolagents import (
     CodeAgent,
@@ -261,11 +261,15 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
         yield "FINISHED"
 
 
+class CaptchaValidationResponse(BaseModel):
+    valid: bool
+
+
 @app.post("/validate-captcha")
-async def validate_captcha(captcha_token: str = Query(..., description="Captcha Token")):
-    if utils.is_valid_captcha_token(captcha_token):
-        return {"valid": True}
-    return {"valid": False}
+async def validate_captcha(captcha_token: str = Query(..., description="Captcha Token")) -> CaptchaValidationResponse:
+    is_valid = utils.is_valid_captcha_token(captcha_token)
+    LOGGER.info(f"Validated captcha token {captcha_token}: {is_valid}")
+    return CaptchaValidationResponse(valid=is_valid)
 
 
 @app.get("/invoke")
