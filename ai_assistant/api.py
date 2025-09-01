@@ -1,3 +1,5 @@
+import litellm
+from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 import asyncio
 import json
 import logging
@@ -5,7 +7,7 @@ import os
 import re
 from datetime import datetime
 from typing import Dict, Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
@@ -38,30 +40,25 @@ from ai_assistant.configs import (
 )
 from ai_assistant.relevancy import RelevancyChecker
 from ai_assistant.conversation_formatter import ConversationFormatter
+from langfuse import get_client
+from opentelemetry import trace
 
+langfuse = get_client()
+
+# Verify connection
+if langfuse.auth_check():
+    print("Langfuse client is authenticated and ready!")
+else:
+    print("Authentication failed. Please check your credentials and host.")
+SmolagentsInstrumentor().instrument()
+tracer = trace.get_tracer(__name__)
+litellm.callbacks = ["langfuse_otel"]
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 LOGGER = logging.getLogger(__name__)
 MESSAGE_STORE = get_message_store()
 RELEVANCY_CHECKER = RelevancyChecker()
 CONVERSATION_FORMATTER = ConversationFormatter()
-
-try:
-    from langfuse import get_client
-    from openinference.instrumentation.smolagents import SmolagentsInstrumentor
-
-    langfuse = get_client()
-
-    # Verify connection
-    if langfuse.auth_check():
-        LOGGER.info("Langfuse client is authenticated and ready!")
-        SmolagentsInstrumentor().instrument()
-    else:
-        LOGGER.warning("Authentication failed. Please check your credentials and host.")
-        langfuse = None
-except ImportError:
-    langfuse = None
-    LOGGER.warning("Langfuse not installed. Tracing and monitoring will not be available.")
 
 app = FastAPI(
     title="AI Assistant API",
@@ -216,25 +213,26 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
             )
             os.makedirs("plots", exist_ok=True)
             with agent:
-                for step in agent.run(prompt, stream=True, max_steps=10):
-                    try:
-                        serialized = self.serialize_step(step)
-                    except Exception as e:
-                        import traceback
+                with tracer.start_as_current_span("main-agent-run"):
+                    for step in agent.run(prompt, stream=True, max_steps=10):
+                        try:
+                            serialized = self.serialize_step(step)
+                        except Exception as e:
+                            import traceback
 
-                        traceback.print_exc()
-                        LOGGER.error(f"Error serializing step: {e}")
-                        continue
-                    if serialized:
-                        data = json.dumps(serialized)
-                        LOGGER.info(f"Streaming data: {data}")
-                        yield f"event: agentStep\ndata: {data}\n\n"
-                    else:
-                        LOGGER.debug(f"Skipping step: {type(step)}")
-                wiki_references = tools.get_wiki_references(agent.memory)
-                if wiki_references:
-                    ta = TypeAdapter(list[tools.WikiReference])
-                    yield f"event: wikiReferences\ndata: {ta.dump_json(wiki_references).decode('utf-8')}\n\n"
+                            traceback.print_exc()
+                            LOGGER.error(f"Error serializing step: {e}")
+                            continue
+                        if serialized:
+                            data = json.dumps(serialized)
+                            LOGGER.info(f"Streaming data: {data}")
+                            yield f"event: agentStep\ndata: {data}\n\n"
+                        else:
+                            LOGGER.debug(f"Skipping step: {type(step)}")
+                    wiki_references = tools.get_wiki_references(agent.memory)
+                    if wiki_references:
+                        ta = TypeAdapter(list[tools.WikiReference])
+                        yield f"event: wikiReferences\ndata: {ta.dump_json(wiki_references).decode('utf-8')}\n\n"
 
             # Generate formatted conversation response using the light model
             try:
@@ -310,23 +308,6 @@ async def invoke(
             status_code=400,
             detail=f"Invalid model. Available models: {list(MODEL_CONFIGS.keys())}",
         )
-
-    try:
-        langfuse = get_client()
-        if langfuse.auth_check():
-            langfuse.update_current_trace(
-                name="AI Assistant API",
-                session_id=str(uuid4()),
-                metadata={
-                    "prompt": prompt,
-                    "memory_id": memory_id,
-                    "steam_id": steam_id,
-                    "context_steam_ids": context_steam_ids,
-                    "model": model_name,
-                },
-            )
-    except Exception as e:
-        LOGGER.error(f"Failed to connect to Langfuse: {e}")
 
     model = MODEL_CONFIGS[model_name]() if model_name else get_model()
 
