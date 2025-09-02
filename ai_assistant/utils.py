@@ -28,7 +28,6 @@ EXCLUDED_COLUMN_PREFIXES = {
     "match_outcome",
     "max_",
     "book_reward",
-    "objectives",
     "hero_xp",
     "hero_equips",
     "stats_type_stat",
