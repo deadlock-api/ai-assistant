@@ -9,8 +9,24 @@ import requests
 import sqlglot
 from pydantic import BaseModel
 from smolagents import tool, AgentMemory, ToolCall, ActionStep
+from functools import lru_cache
 
 LOGGER = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1000)
+def get_items():
+    return requests.get("https://assets.deadlock-api.com/v2/items/").json()
+
+
+@lru_cache(maxsize=1000)
+def get_heroes():
+    return requests.get("https://assets.deadlock-api.com/v2/heroes").json()
+
+
+@lru_cache(maxsize=1000)
+def get_ranks():
+    return requests.get("https://assets.deadlock-api.com/v2/ranks").json()
 
 
 @tool
@@ -46,7 +62,7 @@ def rank_to_badge(rank_name: str, rank_tier: int | None = 0) -> int | str:
         int | str: Hero ID or "Item not found"
     """
     LOGGER.info(f"rank_to_badge({rank_name}, {rank_tier})")
-    ranks = requests.get("https://assets.deadlock-api.com/v2/ranks").json()
+    ranks = get_ranks()
     closest_rank = min(ranks, key=lambda rank: Levenshtein.distance(rank["name"].lower(), rank_name))
     return closest_rank["tier"] * 10 + rank_tier
 
@@ -65,7 +81,7 @@ def badge_to_rank(badge: int) -> str:
     """
     LOGGER.info(f"badge_to_rank({badge})")
     rank_tier = badge % 10
-    rank_name = requests.get("https://assets.deadlock-api.com/v2/ranks").json()[badge // 10]["name"]
+    rank_name = get_ranks()[badge // 10]["name"]
     return f"{rank_name} {rank_tier}"
 
 
@@ -110,7 +126,7 @@ def hero_id_to_name(hero_id: int) -> str:
         str: Hero name or "Hero not found"
     """
     LOGGER.info(f"hero_id_to_name({hero_id})")
-    result = requests.get(f"https://assets.deadlock-api.com/v2/heroes/{hero_id}").json()
+    result = next((hero for hero in get_heroes() if hero["id"] == hero_id), None)
     if result:
         return result["name"]
     return "Hero not found"
@@ -157,9 +173,9 @@ def item_id_to_name(item_id: int) -> str:
         str: Item name or "Item not found"
     """
     LOGGER.info(f"item_id_to_name({item_id})")
-    result = requests.get(f"https://assets.deadlock-api.com/v2/items/{item_id}").json()
-    if result:
-        return result["name"]
+    item = next((item for item in get_items() if item["id"] == item_id or item["class_name"] == item_id), None)
+    if item:
+        return item["name"]
     return "Item not found"
 
 
