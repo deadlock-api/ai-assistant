@@ -185,6 +185,7 @@ def clickhouse_query(sql: str) -> list[dict]:
     Query the Clickhouse DB containing data about deadlock using a SQL query. Results in a list of dict with entries column_name -> value
     You can at most query 100k rows at a time, so be careful with your queries and try to aggregate the data in SQL.
     Whenever you use the `match_info` table you MUST include `match_mode IN ('Ranked', 'Unranked')` in your where clause.
+    You can only use this 5 times, so do fewer queries but aggregate more data.
 
     Args:
         sql: The query to perform. This should be correct Clickhouse SQL.
