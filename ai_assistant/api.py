@@ -309,6 +309,9 @@ async def invoke(
     if "populate" in prompt.lower():
         raise HTTPException(status_code=400, detail="populate is not allowed")
 
+    if "statlocker.gg" in prompt.lower():
+        raise HTTPException(status_code=400, detail="statlocker.gg is not allowed")
+
     if model_name is not None and model_name not in MODEL_CONFIGS:
         raise HTTPException(
             status_code=400,
