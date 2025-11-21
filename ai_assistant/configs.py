@@ -45,7 +45,7 @@ MODEL_CONFIGS = {
     "ollama": lambda: LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
     "hf": lambda: InferenceClientModel(),
 }
-DEFAULT_LIGHT_MODEL = "gemini-2.5-flash-lite"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 REPLAY = [
     'event: agentStep\ndata: {"type": "action_output", "data": "ActionOutput(output=None, is_final_answer=False)"}\n\n',

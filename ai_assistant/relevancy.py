@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from smolagents import ChatMessage
 
 from ai_assistant import utils
-from ai_assistant.configs import DEFAULT_LIGHT_MODEL
+from ai_assistant.configs import DEFAULT_MODEL
 from ai_assistant.utils import list_heroes, list_items
 
 LOGGER = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class RelevancyCheckResult(BaseModel):
 class RelevancyChecker:
     def __init__(
         self,
-        model_id=os.environ.get("LIGHT_MODEL", DEFAULT_LIGHT_MODEL),
+        model_id=os.environ.get("MODEL", DEFAULT_MODEL),
         relevancy_threshold=int(os.environ.get("RELEVANCY_THRESHOLD", 50)),
     ):
         self.model_id = model_id
@@ -182,7 +182,7 @@ class RelevancyChecker:
 
             result: RelevancyCheckResult = response.parsed
             score = result.relevancy_score
-            LOGGER.info(f"Light model ({self.model_id}) relevancy check: '{prompt[:100]}...' -> {score}")
+            LOGGER.info(f"Model ({self.model_id}) relevancy check: '{prompt[:100]}...' -> {score}")
             return score >= self.relevancy_threshold
         except Exception as e:
             LOGGER.error(f"Error during light model relevancy check: {e}")

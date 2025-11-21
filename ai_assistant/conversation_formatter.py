@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from smolagents import AgentMemory
 
 from ai_assistant import utils
-from ai_assistant.configs import DEFAULT_LIGHT_MODEL
+from ai_assistant.configs import DEFAULT_MODEL
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,12 +43,12 @@ class ConversationFormatterResult(BaseModel):
 class ConversationFormatter:
     def __init__(
         self,
-        model_id=os.environ.get("LIGHT_MODEL", DEFAULT_LIGHT_MODEL),
+        model_id=os.environ.get("MODEL", DEFAULT_MODEL),
     ):
         self.model_id = model_id
         self.client = genai.Client()
 
-    def format_conversation(self, memory: AgentMemory, markdown: bool = True) -> str:
+    def format_conversation(self, memory: AgentMemory, markdown: bool = True) -> str | None:
         try:
             # Extract and format conversation history
             conversation_history = utils.extract_messages_from_memory(memory)
@@ -76,7 +76,7 @@ class ConversationFormatter:
                 config=GenerateContentConfig(temperature=0.3),
             )
 
-            LOGGER.info(f"Light model ({self.model_id}) conversation formatting completed successfully")
+            LOGGER.info(f"Model ({self.model_id}) conversation formatting completed successfully")
             return response.text
         except Exception as e:
             LOGGER.error(f"Error during conversation formatting: {e}")
