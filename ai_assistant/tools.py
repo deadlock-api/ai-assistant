@@ -14,17 +14,17 @@ from functools import lru_cache
 LOGGER = logging.getLogger(__name__)
 
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=None)
 def get_items():
     return requests.get("https://assets.deadlock-api.com/v2/items/").json()
 
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=None)
 def get_heroes():
     return requests.get("https://assets.deadlock-api.com/v2/heroes").json()
 
 
-@lru_cache(maxsize=1000)
+@lru_cache(maxsize=None)
 def get_ranks():
     return requests.get("https://assets.deadlock-api.com/v2/ranks").json()
 
