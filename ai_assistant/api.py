@@ -1,5 +1,3 @@
-import litellm
-from openinference.instrumentation.smolagents import SmolagentsInstrumentor
 import asyncio
 import json
 import logging
@@ -40,19 +38,6 @@ from ai_assistant.configs import (
 )
 from ai_assistant.relevancy import RelevancyChecker
 from ai_assistant.conversation_formatter import ConversationFormatter
-from langfuse import get_client
-from opentelemetry import trace
-
-langfuse = get_client()
-
-# Verify connection
-if langfuse.auth_check():
-    print("Langfuse client is authenticated and ready!")
-else:
-    print("Authentication failed. Please check your credentials and host.")
-SmolagentsInstrumentor().instrument()
-tracer = trace.get_tracer(__name__)
-litellm.callbacks = ["langfuse_otel"]
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 LOGGER = logging.getLogger(__name__)
@@ -213,26 +198,25 @@ Current Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
             )
             os.makedirs("plots", exist_ok=True)
             with agent:
-                with tracer.start_as_current_span("main-agent-run"):
-                    for step in agent.run(prompt, stream=True, max_steps=10):
-                        try:
-                            serialized = self.serialize_step(step)
-                        except Exception as e:
-                            import traceback
+                for step in agent.run(prompt, stream=True, max_steps=10):
+                    try:
+                        serialized = self.serialize_step(step)
+                    except Exception as e:
+                        import traceback
 
-                            traceback.print_exc()
-                            LOGGER.error(f"Error serializing step: {e}")
-                            continue
-                        if serialized:
-                            data = json.dumps(serialized)
-                            LOGGER.info(f"Streaming data: {data}")
-                            yield f"event: agentStep\ndata: {data}\n\n"
-                        else:
-                            LOGGER.debug(f"Skipping step: {type(step)}")
-                    wiki_references = tools.get_wiki_references(agent.memory)
-                    if wiki_references:
-                        ta = TypeAdapter(list[tools.WikiReference])
-                        yield f"event: wikiReferences\ndata: {ta.dump_json(wiki_references).decode('utf-8')}\n\n"
+                        traceback.print_exc()
+                        LOGGER.error(f"Error serializing step: {e}")
+                        continue
+                    if serialized:
+                        data = json.dumps(serialized)
+                        LOGGER.info(f"Streaming data: {data}")
+                        yield f"event: agentStep\ndata: {data}\n\n"
+                    else:
+                        LOGGER.debug(f"Skipping step: {type(step)}")
+                wiki_references = tools.get_wiki_references(agent.memory)
+                if wiki_references:
+                    ta = TypeAdapter(list[tools.WikiReference])
+                    yield f"event: wikiReferences\ndata: {ta.dump_json(wiki_references).decode('utf-8')}\n\n"
 
             # Generate formatted conversation response using the light model
             try:
