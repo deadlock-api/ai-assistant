@@ -39,13 +39,13 @@ Format the final answer as simple string.
 """
 
 MODEL_CONFIGS = {
-    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash-lite"),
-    "gemini-flash": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-flash"),
-    "gemini-pro": lambda: LiteLLMModel(model_id="gemini/gemini-2.5-pro"),
+    "gemini-flash-lite": lambda: LiteLLMModel(model_id="gemini/gemini-3.0-flash-lite"),
+    "gemini-flash": lambda: LiteLLMModel(model_id="gemini/gemini-3.0-flash-preview"),
+    "gemini-pro": lambda: LiteLLMModel(model_id="gemini/gemini-3.0-pro-preview"),
     "ollama": lambda: LiteLLMModel(model_id="ollama/qwen2.5-coder:14b"),
     "hf": lambda: InferenceClientModel(),
 }
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3.0-flash-preview"
 
 REPLAY = [
     'event: agentStep\ndata: {"type": "action_output", "data": "ActionOutput(output=None, is_final_answer=False)"}\n\n',
