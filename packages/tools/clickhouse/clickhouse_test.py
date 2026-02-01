@@ -588,7 +588,9 @@ class TestClickHouseQueryTool:
         return MockClient(query_result=result)
 
     @pytest.fixture
-    def query_tool(self, sse_callback: Any, mock_client: MockClient, state: ClickHouseToolsetState) -> ClickHouseQueryTool:
+    def query_tool(
+        self, sse_callback: Any, mock_client: MockClient, state: ClickHouseToolsetState
+    ) -> ClickHouseQueryTool:
         """Create ClickHouseQueryTool instance with tables pre-listed."""
         return ClickHouseQueryTool(
             sse_callback=sse_callback,
