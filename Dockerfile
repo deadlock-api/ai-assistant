@@ -3,6 +3,10 @@ FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
 WORKDIR /app
 
+# Install git (required for git-based dependencies like toon-format)
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy dependency files first for better layer caching
 COPY pyproject.toml uv.lock ./
 
