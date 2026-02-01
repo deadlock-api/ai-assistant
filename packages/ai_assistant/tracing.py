@@ -71,8 +71,9 @@ def configure_tracing() -> bool:
         os.environ.setdefault("LANGSMITH_OTEL_ONLY", "true")
         os.environ.setdefault("LANGSMITH_TRACING", "true")
 
-        # Import and configure langfuse
-        from langfuse import get_client
+        # Apply pydantic v1 patch for Python 3.14+ compatibility (must be before langfuse import)
+        import packages.ai_assistant.patch_pydantic  # noqa: F401, I001
+        from langfuse import get_client  # noqa: I001
 
         langfuse = get_client()
 
