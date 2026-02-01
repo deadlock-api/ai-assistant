@@ -1,25 +1,26 @@
 services:
-  app:
-    build: .
-    environment:
-      REDIS_HOST: ${REDIS_HOST:-redis}
-    ports:
-    - "8080:8080"
-    depends_on:
-      redis:
-        condition: service_healthy
-
   redis:
-    image: redis:alpine
-    restart: unless-stopped
-    command: redis-server --save 20 1 --loglevel warning
+    image: redis
     ports:
-      - '127.0.0.1:6379:6379'
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 3
 
+  api:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file: .env
+    environment:
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
-  postgres-data:
+  redis-data:

@@ -1,38 +1,43 @@
-FROM python:3.14
+# Stage 1: Build with uv
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim AS builder
 
-# Install system dependencies needed for rustup and building native extensions.
-# 'curl' is for downloading rustup, and 'build-base' provides C compilers, etc.
-RUN apt-get update && apt-get install -y curl build-essential tk-dev gcc g++ zlib1g-dev make python3-dev libjpeg-dev python3-tk python3-gdbm
-
-# Install the Rust toolchain using rustup
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-
-# Add the Rust compiler (cargo) to the system's PATH.
-# This makes 'rustc' available to subsequent RUN commands.
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Enable uv optimizations:
-# UV_COMPILE_BYTECODE=1 compiles Python bytecode for faster startup
-# UV_LINK_MODE=copy ensures dependencies are copied (isolated env)
-ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
-
-# Change the working directory to the `app` directory
 WORKDIR /app
 
-# Install dependencies
-# The "cache" mount allows efficient reuse of a uv cache on rebuilds
-RUN --mount=type=cache,target=/root/.cache/uv \
-  --mount=type=bind,source=uv.lock,target=uv.lock \
-  --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-  uv sync --frozen --no-install-project --no-dev
+# Copy dependency files first for better layer caching
+COPY pyproject.toml uv.lock ./
 
-# Copy the project into the image
-COPY . .
+# Install dependencies (without dev dependencies)
+# WITH_EXTENSION=0 tells mwparserfromhell to use pure-Python tokenizer (avoids gcc requirement)
+RUN WITH_EXTENSION=0 uv sync --frozen --no-dev --no-install-project
 
-# Sync the project
-RUN --mount=type=cache,target=/root/.cache/uv \
-  uv sync --frozen --no-dev
+# Copy source code
+COPY packages/ ./packages/
 
-CMD ["uv", "run", "--no-dev", "uvicorn", "ai_assistant.api:app", "--host", "0.0.0.0", "--port", "8080"]
+# Stage 2: Minimal runtime
+FROM python:3.14-slim-bookworm
+
+WORKDIR /app
+
+# Install curl for health check
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Copy source code
+COPY --from=builder /app/packages ./packages/
+
+# Set environment variables
+ENV PATH="/app/.venv/bin:$PATH"
+ENV PYTHONUNBUFFERED=1
+
+# Expose the API port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Run the API server
+CMD ["uvicorn", "packages.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
