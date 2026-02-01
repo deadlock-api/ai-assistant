@@ -17,6 +17,7 @@ dependencies = [
     { name = "pywikibot" },
     { name = "redis" },
     { name = "textual" },
+    { name = "toon-format" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -41,6 +42,7 @@ requires-dist = [
     { name = "pywikibot", specifier = ">=9.0.0" },
     { name = "redis", specifier = ">=5.0.0" },
     { name = "textual", specifier = ">=0.89.0" },
+    { name = "toon-format", git = "https://github.com/toon-format/toon-python" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
 ]
 
@@ -1162,6 +1164,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/9f/38/7d169a765993efde5
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9c/78/96ddb99933e11d91bc6e05edae23d2687e44213066bcbaca338898c73c47/textual-7.5.0-py3-none-any.whl", hash = "sha256:849dfee9d705eab3b2d07b33152b7bd74fb1f5056e002873cc448bce500c6374", size = 718164, upload-time = "2026-01-30T13:46:37.635Z" },
 ]
+
+[[package]]
+name = "toon-format"
+version = "0.9.0b1"
+source = { git = "https://github.com/toon-format/toon-python#6b26984a01279defdcf40ab9d09bc418fe8133ac" }
 
 [[package]]
 name = "tqdm"

@@ -606,3 +606,90 @@ class TestStreamChunk:
         chunk = StreamChunk(content="", is_complete=True)
         assert chunk.content == ""
         assert chunk.is_complete
+
+
+class TestToolResultToonEncoding:
+    """Tests for TOON encoding of tool results."""
+
+    @pytest.fixture
+    def mock_tool_instance(self) -> MagicMock:
+        """Create a mock tool instance."""
+        tool = MagicMock()
+        tool.execute = AsyncMock()
+        return tool
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_dict_result_encoded_as_toon(self, mock_tool_instance: MagicMock) -> None:
+        """Dict results are encoded using TOON format."""
+        from toon_format import encode as toon_encode
+
+        mock_tool_instance.execute.return_value = {"name": "Alice", "age": 30}
+        mock_client = create_mock_client([])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            client = DeadlockAgentClient()
+            tool_func = client._create_tool_function("test_tool", mock_tool_instance)
+            result = await tool_func({})
+
+            expected_toon = toon_encode({"name": "Alice", "age": 30})
+            assert result["content"][0]["text"] == expected_toon
+            assert "is_error" not in result
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_list_result_encoded_as_toon(self, mock_tool_instance: MagicMock) -> None:
+        """List results are encoded using TOON format."""
+        from toon_format import encode as toon_encode
+
+        mock_tool_instance.execute.return_value = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
+        mock_client = create_mock_client([])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            client = DeadlockAgentClient()
+            tool_func = client._create_tool_function("test_tool", mock_tool_instance)
+            result = await tool_func({})
+
+            expected_toon = toon_encode([{"id": 1, "name": "A"}, {"id": 2, "name": "B"}])
+            assert result["content"][0]["text"] == expected_toon
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_string_result_not_encoded(self, mock_tool_instance: MagicMock) -> None:
+        """String results are returned as-is without TOON encoding."""
+        mock_tool_instance.execute.return_value = "Simple string result"
+        mock_client = create_mock_client([])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            client = DeadlockAgentClient()
+            tool_func = client._create_tool_function("test_tool", mock_tool_instance)
+            result = await tool_func({})
+
+            assert result["content"][0]["text"] == "Simple string result"
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_primitive_list_encoded_as_toon(self, mock_tool_instance: MagicMock) -> None:
+        """Primitive lists are encoded using TOON format."""
+        from toon_format import encode as toon_encode
+
+        mock_tool_instance.execute.return_value = ["apple", "banana", "cherry"]
+        mock_client = create_mock_client([])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            client = DeadlockAgentClient()
+            tool_func = client._create_tool_function("test_tool", mock_tool_instance)
+            result = await tool_func({})
+
+            expected_toon = toon_encode(["apple", "banana", "cherry"])
+            assert result["content"][0]["text"] == expected_toon
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_tool_error_handling(self, mock_tool_instance: MagicMock) -> None:
+        """Tool errors are properly formatted."""
+        mock_tool_instance.execute.side_effect = ValueError("Something went wrong")
+        mock_client = create_mock_client([])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            client = DeadlockAgentClient()
+            tool_func = client._create_tool_function("test_tool", mock_tool_instance)
+            result = await tool_func({})
+
+            assert "Error executing test_tool" in result["content"][0]["text"]
+            assert result["is_error"] is True

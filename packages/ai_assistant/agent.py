@@ -194,6 +194,7 @@ from typing import TYPE_CHECKING, Any
 from claude_agent_sdk import ClaudeSDKClient, create_sdk_mcp_server, tool
 from claude_agent_sdk._errors import ClaudeSDKError, CLIConnectionError, CLINotFoundError, ProcessError
 from claude_agent_sdk.types import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock
+from toon_format import encode as toon_encode
 
 from packages.api.models import ChatToolEndEvent, ChatToolStartEvent
 
@@ -496,15 +497,15 @@ class DeadlockAgentClient:
             """Execute the tool and return MCP-formatted result."""
             try:
                 result = await tool_instance.execute(**args)
-                # Format result as MCP response
+                # Format result as MCP response using TOON for structured data
+                # TOON (Token-Oriented Object Notation) reduces token count by ~40%
+                # compared to JSON while maintaining structure clarity for LLMs
                 if isinstance(result, str):
                     result_text = result
-                elif isinstance(result, list):
-                    result_text = "\n".join(str(item) for item in result)
-                elif isinstance(result, dict):
-                    import json
-
-                    result_text = json.dumps(result, indent=2, default=str)
+                elif isinstance(result, (list, dict)):
+                    # Use TOON encoding for structured data (lists and dicts)
+                    # This provides 30-60% token reduction vs JSON
+                    result_text = toon_encode(result)
                 else:
                     result_text = str(result)
 
