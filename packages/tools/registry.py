@@ -10,7 +10,9 @@ from packages.tools.datetime import DateTimeTool
 from packages.tools.openapi import OpenAPITool
 from packages.tools.openapi.assets_api import (
     AssetsAPIToolGenerator,
+    GetHeroMappingTool,
     GetHeroNameTool,
+    GetItemMappingTool,
     GetItemNameTool,
 )
 from packages.tools.openapi.deadlock_api import (
@@ -121,11 +123,13 @@ class ToolRegistry:
         return self._assets_api_tools
 
     def _get_helper_tools(self) -> dict[str, BaseTool]:
-        """Lazy initialization of helper tools (get_hero_name, get_item_name)."""
+        """Lazy initialization of helper tools (hero/item name and mapping tools)."""
         if self._helper_tools is None:
             self._helper_tools = {
                 "get_hero_name": GetHeroNameTool(self._sse_callback, self._timeout),
+                "get_hero_mapping": GetHeroMappingTool(self._sse_callback, self._timeout),
                 "get_item_name": GetItemNameTool(self._sse_callback, self._timeout),
+                "get_item_mapping": GetItemMappingTool(self._sse_callback, self._timeout),
             }
         return self._helper_tools
 

@@ -132,6 +132,178 @@ class GetHeroNameTool(BaseTool):
             self._http_client = None
 
 
+class GetHeroMappingTool(BaseTool):
+    """Tool to get the complete hero name ↔ ID mapping.
+
+    Returns a dictionary containing both name-to-id and id-to-name mappings
+    for all active heroes in the game.
+
+    Args:
+        sse_callback: Callback function to emit SSE events
+        timeout: Timeout in seconds for API calls (default: 60.0)
+    """
+
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
+        super().__init__(sse_callback, timeout)
+        self._http_client: httpx.AsyncClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "get_hero_mapping"
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._http_client
+
+    @retry(max_attempts=3, base_delay=1.0)
+    async def _run(self) -> dict[str, Any]:
+        """Fetch all heroes and return the name ↔ ID mapping.
+
+        Returns:
+            Dictionary with two keys:
+            - "name_to_id": dict mapping hero names to their IDs
+            - "id_to_name": dict mapping hero IDs to their names
+
+        Raises:
+            OpenAPIConnectionError: If the API call fails
+        """
+        url = f"{ASSETS_API_BASE_URL}/v2/heroes"
+
+        try:
+            client = await self._get_client()
+            response = await client.get(url)
+            response.raise_for_status()
+            heroes: list[dict[str, Any]] = response.json()
+
+            name_to_id: dict[str, int] = {}
+            id_to_name: dict[int, str] = {}
+
+            for hero in heroes:
+                hero_id = hero.get("id")
+                hero_name = hero.get("name")
+                if hero_id is not None and hero_name:
+                    name_to_id[hero_name] = hero_id
+                    id_to_name[hero_id] = hero_name
+
+            return {"name_to_id": name_to_id, "id_to_name": id_to_name}
+
+        except httpx.HTTPStatusError as e:
+            raise OpenAPIConnectionError(f"API error: HTTP {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            raise OpenAPIConnectionError(f"Network error: {e}") from e
+
+    def _create_result_summary(self, result: dict[str, Any]) -> str:
+        """Return a summary of the mapping."""
+        name_to_id = result.get("name_to_id", {})
+        return f"Hero mapping: {len(name_to_id)} heroes"
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": "Get the complete hero name ↔ ID mapping for all heroes",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        }
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
+
+
+class GetItemMappingTool(BaseTool):
+    """Tool to get the complete item name ↔ ID mapping.
+
+    Returns a dictionary containing both name-to-id and id-to-name mappings
+    for all items in the game.
+
+    Args:
+        sse_callback: Callback function to emit SSE events
+        timeout: Timeout in seconds for API calls (default: 60.0)
+    """
+
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
+        super().__init__(sse_callback, timeout)
+        self._http_client: httpx.AsyncClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "get_item_mapping"
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._http_client
+
+    @retry(max_attempts=3, base_delay=1.0)
+    async def _run(self) -> dict[str, Any]:
+        """Fetch all items and return the name ↔ ID mapping.
+
+        Returns:
+            Dictionary with two keys:
+            - "name_to_id": dict mapping item names to their IDs
+            - "id_to_name": dict mapping item IDs to their names
+
+        Raises:
+            OpenAPIConnectionError: If the API call fails
+        """
+        url = f"{ASSETS_API_BASE_URL}/v2/items"
+
+        try:
+            client = await self._get_client()
+            response = await client.get(url)
+            response.raise_for_status()
+            items: list[dict[str, Any]] = response.json()
+
+            name_to_id: dict[str, int] = {}
+            id_to_name: dict[int, str] = {}
+
+            for item in items:
+                item_id = item.get("id")
+                item_name = item.get("name")
+                if item_id is not None and item_name:
+                    name_to_id[item_name] = item_id
+                    id_to_name[item_id] = item_name
+
+            return {"name_to_id": name_to_id, "id_to_name": id_to_name}
+
+        except httpx.HTTPStatusError as e:
+            raise OpenAPIConnectionError(f"API error: HTTP {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            raise OpenAPIConnectionError(f"Network error: {e}") from e
+
+    def _create_result_summary(self, result: dict[str, Any]) -> str:
+        """Return a summary of the mapping."""
+        name_to_id = result.get("name_to_id", {})
+        return f"Item mapping: {len(name_to_id)} items"
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": "Get the complete item name ↔ ID mapping for all items",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        }
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
+
+
 class GetItemNameTool(BaseTool):
     """Tool to get an item's name from its ID.
 
@@ -247,7 +419,9 @@ async def create_assets_api_tools(
 
 __all__ = [
     "AssetsAPIToolGenerator",
+    "GetHeroMappingTool",
     "GetHeroNameTool",
+    "GetItemMappingTool",
     "GetItemNameTool",
     "create_assets_api_tools",
     "ASSETS_API_SPEC_URL",

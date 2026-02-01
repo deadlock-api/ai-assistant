@@ -12,7 +12,9 @@ from packages.api.models import ChatToolEndEvent, ChatToolStartEvent
 from packages.tools.openapi import OpenAPIConnectionError, OpenAPITool, OpenAPIToolGenerator
 from packages.tools.openapi.assets_api import (
     ASSETS_API_BASE_URL,
+    GetHeroMappingTool,
     GetHeroNameTool,
+    GetItemMappingTool,
     GetItemNameTool,
 )
 from packages.tools.openapi.deadlock_api import (
@@ -1110,6 +1112,263 @@ class TestGetItemNameTool:
         """Test result summary formatting."""
         summary = item_name_tool._create_result_summary("Basic Magazine")
         assert "Item name: Basic Magazine" in summary
+
+
+class TestGetHeroMappingTool:
+    """Tests for GetHeroMappingTool."""
+
+    @pytest.fixture
+    def sse_events(self) -> list[ChatToolStartEvent | ChatToolEndEvent]:
+        """Capture SSE events."""
+        return []
+
+    @pytest.fixture
+    def sse_callback(self, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]) -> Any:
+        """Create SSE callback that captures events."""
+
+        def callback(event: ChatToolStartEvent | ChatToolEndEvent) -> None:
+            sse_events.append(event)
+
+        return callback
+
+    @pytest.fixture
+    def hero_mapping_tool(self, sse_callback: Any) -> GetHeroMappingTool:
+        """Create GetHeroMappingTool instance."""
+        return GetHeroMappingTool(sse_callback=sse_callback, timeout=10.0)
+
+    @pytest.mark.asyncio
+    async def test_run_returns_hero_mapping(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test successful hero mapping retrieval."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"id": 1, "name": "Abrams", "class_name": "hero_abrams"},
+            {"id": 2, "name": "Bebop", "class_name": "hero_bebop"},
+            {"id": 3, "name": "Dynamo", "class_name": "hero_dynamo"},
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(hero_mapping_tool, "_get_client", return_value=mock_client):
+            result = await hero_mapping_tool._run()
+
+        assert result["name_to_id"] == {"Abrams": 1, "Bebop": 2, "Dynamo": 3}
+        assert result["id_to_name"] == {1: "Abrams", 2: "Bebop", 3: "Dynamo"}
+        mock_client.get.assert_called_once_with(f"{ASSETS_API_BASE_URL}/v2/heroes")
+
+    @pytest.mark.asyncio
+    async def test_run_skips_entries_without_id_or_name(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test entries without id or name are skipped."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"id": 1, "name": "Abrams"},
+            {"id": 2},  # No name
+            {"name": "Bebop"},  # No id
+            {"id": 3, "name": "Dynamo"},
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(hero_mapping_tool, "_get_client", return_value=mock_client):
+            result = await hero_mapping_tool._run()
+
+        assert result["name_to_id"] == {"Abrams": 1, "Dynamo": 3}
+        assert result["id_to_name"] == {1: "Abrams", 3: "Dynamo"}
+
+    @pytest.mark.asyncio
+    async def test_run_handles_http_error(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test handling of HTTP error response."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        error = httpx.HTTPStatusError("Server Error", request=MagicMock(), response=mock_response)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=error)
+
+        with (
+            patch.object(hero_mapping_tool, "_get_client", return_value=mock_client),
+            pytest.raises(OpenAPIConnectionError) as exc_info,
+        ):
+            await hero_mapping_tool._run()
+
+        assert "HTTP 500" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_execute_emits_sse_events(
+        self, hero_mapping_tool: GetHeroMappingTool, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]
+    ) -> None:
+        """Test execute emits start and end SSE events."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [{"id": 1, "name": "Abrams"}]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(hero_mapping_tool, "_get_client", return_value=mock_client):
+            await hero_mapping_tool.execute()
+
+        assert len(sse_events) == 2
+
+        start_event = sse_events[0]
+        assert isinstance(start_event, ChatToolStartEvent)
+        assert start_event.tool_name == "get_hero_mapping"
+
+        end_event = sse_events[1]
+        assert isinstance(end_event, ChatToolEndEvent)
+        assert end_event.success is True
+        assert "1 heroes" in end_event.result_summary
+
+    def test_name_property(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test name property returns correct name."""
+        assert hero_mapping_tool.name == "get_hero_mapping"
+
+    def test_get_definition(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test get_definition returns correct structure."""
+        definition = hero_mapping_tool.get_definition()
+
+        assert definition["name"] == "get_hero_mapping"
+        assert definition["parameters"]["properties"] == {}
+        assert definition["parameters"]["required"] == []
+
+    def test_result_summary_formatting(self, hero_mapping_tool: GetHeroMappingTool) -> None:
+        """Test result summary formatting."""
+        result = {"name_to_id": {"Abrams": 1, "Bebop": 2}, "id_to_name": {1: "Abrams", 2: "Bebop"}}
+        summary = hero_mapping_tool._create_result_summary(result)
+        assert "Hero mapping: 2 heroes" in summary
+
+
+class TestGetItemMappingTool:
+    """Tests for GetItemMappingTool."""
+
+    @pytest.fixture
+    def sse_events(self) -> list[ChatToolStartEvent | ChatToolEndEvent]:
+        """Capture SSE events."""
+        return []
+
+    @pytest.fixture
+    def sse_callback(self, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]) -> Any:
+        """Create SSE callback that captures events."""
+
+        def callback(event: ChatToolStartEvent | ChatToolEndEvent) -> None:
+            sse_events.append(event)
+
+        return callback
+
+    @pytest.fixture
+    def item_mapping_tool(self, sse_callback: Any) -> GetItemMappingTool:
+        """Create GetItemMappingTool instance."""
+        return GetItemMappingTool(sse_callback=sse_callback, timeout=10.0)
+
+    @pytest.mark.asyncio
+    async def test_run_returns_item_mapping(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test successful item mapping retrieval."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"id": 100, "name": "Basic Magazine", "class_name": "upgrade_magazine"},
+            {"id": 101, "name": "Healing Rite", "class_name": "ability_healing_rite"},
+            {"id": 102, "name": "Monster Rounds", "class_name": "upgrade_monster_rounds"},
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(item_mapping_tool, "_get_client", return_value=mock_client):
+            result = await item_mapping_tool._run()
+
+        assert result["name_to_id"] == {"Basic Magazine": 100, "Healing Rite": 101, "Monster Rounds": 102}
+        assert result["id_to_name"] == {100: "Basic Magazine", 101: "Healing Rite", 102: "Monster Rounds"}
+        mock_client.get.assert_called_once_with(f"{ASSETS_API_BASE_URL}/v2/items")
+
+    @pytest.mark.asyncio
+    async def test_run_skips_entries_without_id_or_name(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test entries without id or name are skipped."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [
+            {"id": 100, "name": "Basic Magazine"},
+            {"id": 101},  # No name
+            {"name": "Healing Rite"},  # No id
+            {"id": 102, "name": "Monster Rounds"},
+        ]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(item_mapping_tool, "_get_client", return_value=mock_client):
+            result = await item_mapping_tool._run()
+
+        assert result["name_to_id"] == {"Basic Magazine": 100, "Monster Rounds": 102}
+        assert result["id_to_name"] == {100: "Basic Magazine", 102: "Monster Rounds"}
+
+    @pytest.mark.asyncio
+    async def test_run_handles_http_error(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test handling of HTTP error response."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        error = httpx.HTTPStatusError("Server Error", request=MagicMock(), response=mock_response)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=error)
+
+        with (
+            patch.object(item_mapping_tool, "_get_client", return_value=mock_client),
+            pytest.raises(OpenAPIConnectionError) as exc_info,
+        ):
+            await item_mapping_tool._run()
+
+        assert "HTTP 500" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_execute_emits_sse_events(
+        self, item_mapping_tool: GetItemMappingTool, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]
+    ) -> None:
+        """Test execute emits start and end SSE events."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = [{"id": 100, "name": "Basic Magazine"}]
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(item_mapping_tool, "_get_client", return_value=mock_client):
+            await item_mapping_tool.execute()
+
+        assert len(sse_events) == 2
+
+        start_event = sse_events[0]
+        assert isinstance(start_event, ChatToolStartEvent)
+        assert start_event.tool_name == "get_item_mapping"
+
+        end_event = sse_events[1]
+        assert isinstance(end_event, ChatToolEndEvent)
+        assert end_event.success is True
+        assert "1 items" in end_event.result_summary
+
+    def test_name_property(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test name property returns correct name."""
+        assert item_mapping_tool.name == "get_item_mapping"
+
+    def test_get_definition(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test get_definition returns correct structure."""
+        definition = item_mapping_tool.get_definition()
+
+        assert definition["name"] == "get_item_mapping"
+        assert definition["parameters"]["properties"] == {}
+        assert definition["parameters"]["required"] == []
+
+    def test_result_summary_formatting(self, item_mapping_tool: GetItemMappingTool) -> None:
+        """Test result summary formatting."""
+        result = {
+            "name_to_id": {"Basic Magazine": 100, "Healing Rite": 101},
+            "id_to_name": {100: "Basic Magazine", 101: "Healing Rite"},
+        }
+        summary = item_mapping_tool._create_result_summary(result)
+        assert "Item mapping: 2 items" in summary
 
 
 class TestDeadlockAPIToolGenerator:
