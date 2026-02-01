@@ -78,11 +78,39 @@ def get_clickhouse_client() -> Client:
         raise ClickHouseConnectionError(f"Failed to connect to ClickHouse: {e}") from e
 
 
+class ClickHouseToolsetState:
+    """Shared state for ClickHouse tools within a toolset.
+
+    Tracks whether the agent has listed tables before attempting to describe or query them.
+    This ensures the agent understands the available schema before running queries.
+    """
+
+    def __init__(self) -> None:
+        self._tables_listed: bool = False
+
+    @property
+    def tables_listed(self) -> bool:
+        """Check if tables have been listed in this session."""
+        return self._tables_listed
+
+    def mark_tables_listed(self) -> None:
+        """Mark that tables have been listed."""
+        self._tables_listed = True
+
+    def reset(self) -> None:
+        """Reset the state (e.g., for testing or new sessions)."""
+        self._tables_listed = False
+
+
 class ClickHouseToolset:
     """Manages ClickHouse tools with lazy client initialization.
 
     Provides shared ClickHouse client connection for all tools in this toolset.
     The client is lazily initialized on first use.
+
+    Enforces that clickhouse_list_tables must be called before clickhouse_describe_table
+    or clickhouse_query can be used. This ensures the agent understands the available
+    schema before attempting to query the database.
 
     Args:
         sse_callback: Callback function to emit SSE events
@@ -93,6 +121,7 @@ class ClickHouseToolset:
         self._sse_callback = sse_callback
         self._timeout = timeout
         self._client: Client | None = None
+        self._state = ClickHouseToolsetState()
 
     def _get_client(self) -> Client:
         """Lazy initialization of ClickHouse client connection."""
@@ -105,6 +134,7 @@ class ClickHouseToolset:
         if self._client is not None:
             self._client.close()
             self._client = None
+        self._state.reset()
 
     def get_tools(
         self,
@@ -115,16 +145,21 @@ class ClickHouseToolset:
             List of ClickHouse tool instances
         """
         return [
-            ClickHouseListTablesTool(self._sse_callback, self._timeout, self._get_client),
-            ClickHouseDescribeTableTool(self._sse_callback, self._timeout, self._get_client),
-            ClickHouseQueryTool(self._sse_callback, self._timeout, self._get_client),
+            ClickHouseListTablesTool(self._sse_callback, self._timeout, self._get_client, self._state),
+            ClickHouseDescribeTableTool(self._sse_callback, self._timeout, self._get_client, self._state),
+            ClickHouseQueryTool(self._sse_callback, self._timeout, self._get_client, self._state),
         ]
+
+
+class TablesNotListedError(Exception):
+    """Raised when trying to describe or query before listing tables."""
 
 
 class ClickHouseDescribeTableTool(BaseTool):
     """Tool to describe a table's schema in the ClickHouse database.
 
     Returns column names, types, and comments for the specified table.
+    Requires clickhouse_list_tables to be called first.
     """
 
     # Pattern for valid table names: alphanumeric and underscore only
@@ -135,9 +170,11 @@ class ClickHouseDescribeTableTool(BaseTool):
         sse_callback: SSECallback,
         timeout: float,
         get_client: Any,  # Callable[[], Client] - use Any to avoid import issues
+        state: ClickHouseToolsetState,
     ) -> None:
         super().__init__(sse_callback, timeout)
         self._get_client = get_client
+        self._state = state
 
     @property
     def name(self) -> str:
@@ -154,8 +191,16 @@ class ClickHouseDescribeTableTool(BaseTool):
             List of column information dictionaries with name, type, and comment
 
         Raises:
+            TablesNotListedError: If clickhouse_list_tables was not called first
             ValueError: If table_name contains invalid characters
         """
+        # Check if tables have been listed first
+        if not self._state.tables_listed:
+            raise TablesNotListedError(
+                "You must call clickhouse_list_tables first before describing a table. "
+                "This ensures you understand the available schema before querying."
+            )
+
         # Validate table name
         if not table_name or not self.TABLE_NAME_PATTERN.match(table_name):
             raise ValueError(
@@ -202,6 +247,7 @@ class ClickHouseDescribeTableTool(BaseTool):
             "name": self.name,
             "description": "Describe a table's schema in the ClickHouse database. "
             "Returns column names, types, and comments. "
+            "PREREQUISITE: You MUST call clickhouse_list_tables first before using this tool. "
             "Use this to understand table structure before writing queries.",
             "parameters": {
                 "type": "object",
@@ -221,6 +267,7 @@ class ClickHouseQueryTool(BaseTool):
 
     Executes read-only SQL queries and returns results as list of dictionaries.
     Only SELECT queries are allowed; data modification queries are rejected.
+    Requires clickhouse_list_tables to be called first.
     """
 
     # Default maximum number of result rows
@@ -241,10 +288,12 @@ class ClickHouseQueryTool(BaseTool):
         sse_callback: SSECallback,
         timeout: float,
         get_client: Any,  # Callable[[], Client] - use Any to avoid import issues
+        state: ClickHouseToolsetState,
         row_limit: int = DEFAULT_ROW_LIMIT,
     ) -> None:
         super().__init__(sse_callback, timeout)
         self._get_client = get_client
+        self._state = state
         self._row_limit = row_limit
 
     @property
@@ -262,9 +311,17 @@ class ClickHouseQueryTool(BaseTool):
             List of row dictionaries with column names as keys
 
         Raises:
+            TablesNotListedError: If clickhouse_list_tables was not called first
             ValueError: If sql is empty or contains disallowed statements
             TimeoutError: If query execution times out
         """
+        # Check if tables have been listed first
+        if not self._state.tables_listed:
+            raise TablesNotListedError(
+                "You must call clickhouse_list_tables first before running queries. "
+                "This ensures you understand the available schema before querying."
+            )
+
         # Validate input is non-empty
         if not sql or not sql.strip():
             raise ValueError("SQL query cannot be empty")
@@ -333,9 +390,10 @@ class ClickHouseQueryTool(BaseTool):
                 "Execute a SELECT query against the ClickHouse database for analytics. "
                 "Only read-only queries are allowed; data modifications are rejected. "
                 "Results are limited to 1000 rows by default. "
+                "PREREQUISITE: You MUST call clickhouse_list_tables first before using this tool. "
                 "IMPORTANT: Prefer running multiple simple, focused queries over complex ones. "
                 "For example, run separate queries for different aggregations rather than combining them. "
-                "Use clickhouse_describe_table first to understand table schema before querying."
+                "Use clickhouse_describe_table to understand table schema before querying."
             ),
             "parameters": {
                 "type": "object",
@@ -354,6 +412,7 @@ class ClickHouseListTablesTool(BaseTool):
     """Tool to list all tables in the ClickHouse database.
 
     Returns a list of table names in the configured database.
+    This tool MUST be called before using clickhouse_describe_table or clickhouse_query.
     """
 
     def __init__(
@@ -361,9 +420,11 @@ class ClickHouseListTablesTool(BaseTool):
         sse_callback: SSECallback,
         timeout: float,
         get_client: Any,  # Callable[[], Client] - use Any to avoid import issues
+        state: ClickHouseToolsetState,
     ) -> None:
         super().__init__(sse_callback, timeout)
         self._get_client = get_client
+        self._state = state
 
     @property
     def name(self) -> str:
@@ -380,6 +441,8 @@ class ClickHouseListTablesTool(BaseTool):
         result = client.query("SHOW TABLES")
         # Result is a QueryResult; result.result_rows contains tuples of values
         tables: list[str] = [row[0] for row in result.result_rows]
+        # Mark that tables have been listed - enables describe_table and query tools
+        self._state.mark_tables_listed()
         return tables
 
     def _create_result_summary(self, result: list[str]) -> str:
@@ -395,7 +458,8 @@ class ClickHouseListTablesTool(BaseTool):
         return {
             "name": self.name,
             "description": "List all tables in the ClickHouse database. "
-            "Use this to discover what data is available before writing queries.",
+            "IMPORTANT: You MUST call this tool first before using clickhouse_describe_table or clickhouse_query. "
+            "This ensures you understand the available schema before writing queries.",
             "parameters": {"type": "object", "properties": {}, "required": []},
         }
 
@@ -406,6 +470,8 @@ __all__ = [
     "ClickHouseListTablesTool",
     "ClickHouseQueryTool",
     "ClickHouseToolset",
+    "ClickHouseToolsetState",
+    "TablesNotListedError",
     "get_clickhouse_client",
     "get_clickhouse_config",
     "CLICKHOUSE_HOST_ENV",

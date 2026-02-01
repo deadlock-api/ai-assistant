@@ -19,6 +19,8 @@ from packages.tools.clickhouse import (
     ClickHouseListTablesTool,
     ClickHouseQueryTool,
     ClickHouseToolset,
+    ClickHouseToolsetState,
+    TablesNotListedError,
     get_clickhouse_client,
     get_clickhouse_config,
 )
@@ -271,12 +273,20 @@ class TestClickHouseListTablesTool:
         return MockClient(tables=["matches", "players", "events"])
 
     @pytest.fixture
-    def list_tables_tool(self, sse_callback: Any, mock_client: MockClient) -> ClickHouseListTablesTool:
+    def state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state."""
+        return ClickHouseToolsetState()
+
+    @pytest.fixture
+    def list_tables_tool(
+        self, sse_callback: Any, mock_client: MockClient, state: ClickHouseToolsetState
+    ) -> ClickHouseListTablesTool:
         """Create ClickHouseListTablesTool instance."""
         return ClickHouseListTablesTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
 
     @pytest.mark.asyncio
@@ -286,13 +296,23 @@ class TestClickHouseListTablesTool:
         assert result == ["matches", "players", "events"]
 
     @pytest.mark.asyncio
-    async def test_list_tables_empty_database(self, sse_callback: Any) -> None:
+    async def test_list_tables_marks_state_as_listed(
+        self, list_tables_tool: ClickHouseListTablesTool, state: ClickHouseToolsetState
+    ) -> None:
+        """Test that list_tables marks the state so other tools can be used."""
+        assert state.tables_listed is False
+        await list_tables_tool._run()
+        assert state.tables_listed is True
+
+    @pytest.mark.asyncio
+    async def test_list_tables_empty_database(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test list tables returns empty list for empty database."""
         mock_client = MockClient(tables=[])
         tool = ClickHouseListTablesTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         result = await tool._run()
         assert result == []
@@ -359,6 +379,18 @@ class TestClickHouseDescribeTableTool:
         return callback
 
     @pytest.fixture
+    def state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state with tables already listed."""
+        state = ClickHouseToolsetState()
+        state.mark_tables_listed()  # Pre-mark as listed for most tests
+        return state
+
+    @pytest.fixture
+    def unlisted_state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state without tables listed."""
+        return ClickHouseToolsetState()
+
+    @pytest.fixture
     def mock_client(self) -> MockClient:
         """Create mock ClickHouse client with describe result."""
         return MockClient(
@@ -371,13 +403,31 @@ class TestClickHouseDescribeTableTool:
         )
 
     @pytest.fixture
-    def describe_table_tool(self, sse_callback: Any, mock_client: MockClient) -> ClickHouseDescribeTableTool:
-        """Create ClickHouseDescribeTableTool instance."""
+    def describe_table_tool(
+        self, sse_callback: Any, mock_client: MockClient, state: ClickHouseToolsetState
+    ) -> ClickHouseDescribeTableTool:
+        """Create ClickHouseDescribeTableTool instance with tables pre-listed."""
         return ClickHouseDescribeTableTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
+
+    @pytest.mark.asyncio
+    async def test_describe_table_requires_list_tables_first(
+        self, sse_callback: Any, mock_client: MockClient, unlisted_state: ClickHouseToolsetState
+    ) -> None:
+        """Test describe table raises TablesNotListedError if list_tables not called first."""
+        tool = ClickHouseDescribeTableTool(
+            sse_callback=sse_callback,
+            timeout=10.0,
+            get_client=lambda: mock_client,
+            state=unlisted_state,
+        )
+        with pytest.raises(TablesNotListedError) as exc_info:
+            await tool._run(table_name="matches")
+        assert "clickhouse_list_tables first" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_describe_table_returns_columns(self, describe_table_tool: ClickHouseDescribeTableTool) -> None:
@@ -417,13 +467,14 @@ class TestClickHouseDescribeTableTool:
             assert "Invalid table name" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_describe_table_not_found(self, sse_callback: Any) -> None:
+    async def test_describe_table_not_found(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test describe table raises error for missing table."""
         mock_client = MockClient(tables=["other_table"])
         tool = ClickHouseDescribeTableTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         with pytest.raises(ValueError) as exc_info:
             await tool._run(table_name="nonexistent")
@@ -516,6 +567,18 @@ class TestClickHouseQueryTool:
         return callback
 
     @pytest.fixture
+    def state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state with tables already listed."""
+        state = ClickHouseToolsetState()
+        state.mark_tables_listed()  # Pre-mark as listed for most tests
+        return state
+
+    @pytest.fixture
+    def unlisted_state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state without tables listed."""
+        return ClickHouseToolsetState()
+
+    @pytest.fixture
     def mock_client(self) -> MockClient:
         """Create mock ClickHouse client with query result."""
         result = MockQueryResult(
@@ -525,13 +588,29 @@ class TestClickHouseQueryTool:
         return MockClient(query_result=result)
 
     @pytest.fixture
-    def query_tool(self, sse_callback: Any, mock_client: MockClient) -> ClickHouseQueryTool:
-        """Create ClickHouseQueryTool instance."""
+    def query_tool(self, sse_callback: Any, mock_client: MockClient, state: ClickHouseToolsetState) -> ClickHouseQueryTool:
+        """Create ClickHouseQueryTool instance with tables pre-listed."""
         return ClickHouseQueryTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
+
+    @pytest.mark.asyncio
+    async def test_query_requires_list_tables_first(
+        self, sse_callback: Any, mock_client: MockClient, unlisted_state: ClickHouseToolsetState
+    ) -> None:
+        """Test query raises TablesNotListedError if list_tables not called first."""
+        tool = ClickHouseQueryTool(
+            sse_callback=sse_callback,
+            timeout=10.0,
+            get_client=lambda: mock_client,
+            state=unlisted_state,
+        )
+        with pytest.raises(TablesNotListedError) as exc_info:
+            await tool._run(sql="SELECT * FROM players")
+        assert "clickhouse_list_tables first" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_query_returns_results(self, query_tool: ClickHouseQueryTool) -> None:
@@ -545,13 +624,14 @@ class TestClickHouseQueryTool:
         assert result[1]["id"] == 2
 
     @pytest.mark.asyncio
-    async def test_query_empty_result(self, sse_callback: Any) -> None:
+    async def test_query_empty_result(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test query with no results."""
         mock_client = MockClient(query_result=MockQueryResult(result_rows=[], column_names=["id"]))
         tool = ClickHouseQueryTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         result = await tool._run(sql="SELECT * FROM empty_table")
         assert result == []
@@ -648,7 +728,7 @@ class TestClickHouseQueryTool:
                 await query_tool._run(sql=f"{keyword} INTO/FROM players")
 
     @pytest.mark.asyncio
-    async def test_query_respects_row_limit(self, sse_callback: Any) -> None:
+    async def test_query_respects_row_limit(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test query respects custom row limit."""
         rows = [(i,) for i in range(100)]
         mock_client = MockClient(query_result=MockQueryResult(result_rows=rows, column_names=["id"]))
@@ -656,13 +736,14 @@ class TestClickHouseQueryTool:
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
             row_limit=10,
         )
         result = await tool._run(sql="SELECT * FROM large_table")
         assert len(result) <= 10
 
     @pytest.mark.asyncio
-    async def test_query_timeout_error(self, sse_callback: Any) -> None:
+    async def test_query_timeout_error(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test query handles timeout errors."""
         mock_client = MagicMock()
         mock_client.query.side_effect = RuntimeError("Query timed out")
@@ -671,6 +752,7 @@ class TestClickHouseQueryTool:
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         with pytest.raises(TimeoutError) as exc_info:
             await tool._run(sql="SELECT * FROM players")
@@ -770,8 +852,13 @@ class TestClickHouseToolsIntegration:
 
         return callback
 
+    @pytest.fixture
+    def state(self) -> ClickHouseToolsetState:
+        """Create shared toolset state."""
+        return ClickHouseToolsetState()
+
     @pytest.mark.asyncio
-    async def test_list_then_describe_workflow(self, sse_callback: Any) -> None:
+    async def test_list_then_describe_workflow(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
         """Test typical workflow: list tables then describe one."""
         mock_client = MockClient(
             tables=["matches", "players", "events"],
@@ -785,28 +872,49 @@ class TestClickHouseToolsIntegration:
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         describe_tool = ClickHouseDescribeTableTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
 
-        # List tables
+        # List tables first (required before describe)
         tables = await list_tool.execute()
         assert "matches" in tables
 
-        # Describe one table
+        # Now describe is allowed since we listed tables
         columns = await describe_tool.execute(table_name="matches")
         assert len(columns) == 2
         assert columns[0]["name"] == "match_id"
 
     @pytest.mark.asyncio
-    async def test_describe_then_query_workflow(
-        self, sse_callback: Any, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]
+    async def test_describe_without_list_fails(self, sse_callback: Any, state: ClickHouseToolsetState) -> None:
+        """Test that describe fails if list_tables not called first."""
+        mock_client = MockClient(
+            tables=["matches"],
+            describe_result=[("id", "UInt64", "", "", "")],
+        )
+
+        describe_tool = ClickHouseDescribeTableTool(
+            sse_callback=sse_callback,
+            timeout=10.0,
+            get_client=lambda: mock_client,
+            state=state,
+        )
+
+        # Should fail because we haven't listed tables yet
+        with pytest.raises(TablesNotListedError):
+            await describe_tool.execute(table_name="matches")
+
+    @pytest.mark.asyncio
+    async def test_list_describe_query_workflow(
+        self, sse_callback: Any, sse_events: list[ChatToolStartEvent | ChatToolEndEvent], state: ClickHouseToolsetState
     ) -> None:
-        """Test workflow: describe table then run query."""
-        # Create a special mock client that handles both DESCRIBE and SELECT queries
+        """Test workflow: list tables, describe table, then run query."""
+        # Create a special mock client that handles SHOW TABLES, DESCRIBE and SELECT queries
         mock_describe_result = MockQueryResult(
             result_rows=[
                 ("id", "UInt64", "", "", ""),
@@ -831,16 +939,28 @@ class TestClickHouseToolsIntegration:
 
         mock_client = SmartMockClient()
 
+        list_tool = ClickHouseListTablesTool(
+            sse_callback=sse_callback,
+            timeout=10.0,
+            get_client=lambda: mock_client,
+            state=state,
+        )
         describe_tool = ClickHouseDescribeTableTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
         query_tool = ClickHouseQueryTool(
             sse_callback=sse_callback,
             timeout=10.0,
             get_client=lambda: mock_client,
+            state=state,
         )
+
+        # First list tables (required)
+        tables = await list_tool.execute()
+        assert "players" in tables
 
         # Describe table to understand schema
         columns = await describe_tool.execute(table_name="players")
@@ -853,8 +973,8 @@ class TestClickHouseToolsIntegration:
         assert len(result) == 1
         assert result[0]["id"] == 1
 
-        # Verify SSE events were emitted for both operations
-        assert len(sse_events) == 4  # 2 for describe, 2 for query
+        # Verify SSE events were emitted for all operations
+        assert len(sse_events) == 6  # 2 for list, 2 for describe, 2 for query
 
     @pytest.mark.asyncio
     async def test_toolset_provides_working_tools(self, sse_callback: Any) -> None:
