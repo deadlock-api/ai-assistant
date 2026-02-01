@@ -273,7 +273,7 @@ complex analytics to support players.
 DEFAULT_MODEL = "claude-sonnet-4-5"
 
 # Default timeout in seconds
-DEFAULT_TIMEOUT_SECONDS = 60
+DEFAULT_TIMEOUT_SECONDS = 600
 
 # Default retry configuration
 DEFAULT_MAX_RETRIES = 3
@@ -315,7 +315,7 @@ class AgentConfig:
     max_retries: int = DEFAULT_MAX_RETRIES
     initial_backoff: float = DEFAULT_INITIAL_BACKOFF
     backoff_multiplier: float = DEFAULT_BACKOFF_MULTIPLIER
-    max_turns: int = 10  # Allow multiple turns for tool use
+    max_turns: int = 100  # Allow multiple turns for tool use
 
 
 # Type alias for SSE callback
@@ -334,7 +334,8 @@ def get_agent_config() -> AgentConfig:
         AgentConfig with values from environment or defaults.
     """
     timeout = float(os.environ.get("AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
-    return AgentConfig(timeout_seconds=timeout)
+    max_turns = int(os.environ.get("AGENT_MAX_TURNS", 100))
+    return AgentConfig(timeout_seconds=timeout, max_turns=max_turns)
 
 
 def validate_configuration() -> None:
