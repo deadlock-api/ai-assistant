@@ -162,9 +162,7 @@ class GetHeroMappingTool(BaseTool):
         """Fetch all heroes and return the name ↔ ID mapping.
 
         Returns:
-            Dictionary with two keys:
-            - "name_to_id": dict mapping hero names to their IDs
-            - "id_to_name": dict mapping hero IDs to their names
+            dict mapping hero names to their IDs
 
         Raises:
             OpenAPIConnectionError: If the API call fails
@@ -178,16 +176,14 @@ class GetHeroMappingTool(BaseTool):
             heroes: list[dict[str, Any]] = response.json()
 
             name_to_id: dict[str, int] = {}
-            id_to_name: dict[int, str] = {}
 
             for hero in heroes:
                 hero_id = hero.get("id")
                 hero_name = hero.get("name")
                 if hero_id is not None and hero_name:
                     name_to_id[hero_name] = hero_id
-                    id_to_name[hero_id] = hero_name
 
-            return {"name_to_id": name_to_id, "id_to_name": id_to_name}
+            return name_to_id
 
         except httpx.HTTPStatusError as e:
             raise OpenAPIConnectionError(f"API error: HTTP {e.response.status_code}") from e
@@ -248,9 +244,7 @@ class GetItemMappingTool(BaseTool):
         """Fetch all items and return the name ↔ ID mapping.
 
         Returns:
-            Dictionary with two keys:
-            - "name_to_id": dict mapping item names to their IDs
-            - "id_to_name": dict mapping item IDs to their names
+            dict mapping item names to their IDs
 
         Raises:
             OpenAPIConnectionError: If the API call fails
@@ -264,16 +258,14 @@ class GetItemMappingTool(BaseTool):
             items: list[dict[str, Any]] = response.json()
 
             name_to_id: dict[str, int] = {}
-            id_to_name: dict[int, str] = {}
 
             for item in items:
                 item_id = item.get("id")
                 item_name = item.get("name")
                 if item_id is not None and item_name:
                     name_to_id[item_name] = item_id
-                    id_to_name[item_id] = item_name
 
-            return {"name_to_id": name_to_id, "id_to_name": id_to_name}
+            return name_to_id
 
         except httpx.HTTPStatusError as e:
             raise OpenAPIConnectionError(f"API error: HTTP {e.response.status_code}") from e
