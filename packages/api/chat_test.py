@@ -28,6 +28,9 @@ STREAM_RESPONSE_PATH = f"{CHAT_MODULE}.stream_response"
 GET_HISTORY_PATH = f"{CHAT_MODULE}.get_conversation_history"
 ADD_MESSAGE_PATH = f"{CHAT_MODULE}.add_message"
 GENERATE_ID_PATH = f"{CHAT_MODULE}.generate_conversation_id"
+GET_CACHED_PATH = f"{CHAT_MODULE}.get_cached_sse_stream"
+CACHE_STREAM_PATH = f"{CHAT_MODULE}.cache_sse_stream"
+GENERATE_CACHE_KEY_PATH = f"{CHAT_MODULE}.generate_cache_key"
 
 
 @pytest.fixture
@@ -414,3 +417,143 @@ class TestChatRequestValidation:
         assert response.status_code == 400
         data = response.json()
         assert data["code"] == "VALIDATION_ERROR"
+
+
+@pytest.mark.usefixtures("valid_api_key")
+class TestChatSSECaching:
+    """Tests for SSE stream caching."""
+
+    def test_cache_hit_replays_cached_stream(self, client: TestClient) -> None:
+        """Test that cached responses are replayed without calling stream_response."""
+        cached_events = [
+            'data: {"event":"start","conversation_id":"cached-id"}\n\n',
+            'data: {"event":"delta","content":"Cached response"}\n\n',
+            'data: {"event":"end","conversation_id":"cached-id"}\n\n',
+        ]
+
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
+            patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=cached_events),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success) as mock_stream,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert len(events) == 3
+            assert events[0]["event"] == "start"
+            assert events[0]["conversation_id"] == "cached-id"
+            assert events[1]["event"] == "delta"
+            assert events[1]["content"] == "Cached response"
+            assert events[2]["event"] == "end"
+
+            # stream_response should not be called when cache hits
+            mock_stream.assert_not_called()
+
+    def test_cache_miss_generates_and_caches(self, client: TestClient) -> None:
+        """Test that cache misses generate response and cache it."""
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
+            patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
+            patch(CACHE_STREAM_PATH, new_callable=AsyncMock) as mock_cache,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[0]["event"] == "start"
+            assert events[-1]["event"] == "end"
+
+            # Verify caching was called with collected events
+            mock_cache.assert_called_once()
+            call_args = mock_cache.call_args
+            assert call_args[0][0] == "sse_cache:test"
+            cached_events = call_args[0][1]
+            assert len(cached_events) == 4  # start, 2 deltas, end
+
+    def test_cache_lookup_failure_proceeds_without_cache(self, client: TestClient) -> None:
+        """Test that cache lookup failure doesn't break the request."""
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
+            patch(GET_CACHED_PATH, new_callable=AsyncMock, side_effect=RedisUnavailableError("Connection failed")),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
+            patch(CACHE_STREAM_PATH, new_callable=AsyncMock),
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[0]["event"] == "start"
+            assert events[-1]["event"] == "end"
+
+    def test_cache_save_failure_does_not_affect_response(self, client: TestClient) -> None:
+        """Test that cache save failure doesn't affect the response."""
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
+            patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
+            patch(CACHE_STREAM_PATH, new_callable=AsyncMock, side_effect=RedisUnavailableError("Connection failed")),
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[0]["event"] == "start"
+            # Response should complete successfully
+            assert events[-1]["event"] == "end"
+
+    def test_error_responses_are_not_cached(self, client: TestClient) -> None:
+        """Test that error responses are not cached."""
+
+        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+            raise AgentConfigurationError("ANTHROPIC_API_KEY not set")
+            yield
+
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
+            patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            patch(CACHE_STREAM_PATH, new_callable=AsyncMock) as mock_cache,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Hello"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[-1]["event"] == "error"
+
+            # Caching should not be called for error responses
+            mock_cache.assert_not_called()
