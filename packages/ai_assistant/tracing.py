@@ -23,7 +23,7 @@ import os
 
 logger = logging.getLogger(__name__)
 
-_tracing_configured = False
+_tracing_configured: bool = False
 
 
 def is_tracing_enabled() -> bool:
