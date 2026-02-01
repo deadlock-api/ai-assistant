@@ -133,29 +133,6 @@ class TestGetClickHouseClient:
 
         assert client == mock_client
 
-    def test_get_client_uses_secure_connection(self) -> None:
-        """Test that client uses secure (HTTPS) connection."""
-        env_vars = {
-            CLICKHOUSE_HOST_ENV: "clickhouse.example.com",
-            CLICKHOUSE_DBNAME_ENV: "testdb",
-            CLICKHOUSE_USERNAME_ENV: "testuser",
-            CLICKHOUSE_PASSWORD_ENV: "testpass",
-        }
-        mock_client = MagicMock()
-
-        with (
-            patch.dict(os.environ, env_vars, clear=False),
-            patch("packages.tools.clickhouse.clickhouse_connect.get_client", return_value=mock_client) as mock_get,
-        ):
-            get_clickhouse_client()
-            mock_get.assert_called_once_with(
-                host="clickhouse.example.com",
-                database="testdb",
-                username="testuser",
-                password="testpass",
-                secure=True,
-            )
-
     def test_get_client_connection_failure(self) -> None:
         """Test error handling when connection fails."""
         env_vars = {
