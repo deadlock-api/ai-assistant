@@ -458,20 +458,29 @@ def main() -> None:
         print(error, file=sys.stderr)
         sys.exit(1)
 
-    if args.tui:
-        # Run the TUI (no logging setup needed, Textual handles its own output)
-        run_tui()
-    else:
-        # Set up logging for console mode
-        if args.quiet:
-            setup_logging(logging.WARNING)
-        elif args.verbose:
-            setup_logging(logging.DEBUG)
-        else:
-            setup_logging(logging.INFO)
+    # Configure Langfuse tracing if enabled
+    from packages.ai_assistant.tracing import configure_tracing, flush_traces
 
-        # Run the console CLI
-        asyncio.run(run_console_cli())
+    configure_tracing()
+
+    try:
+        if args.tui:
+            # Run the TUI (no logging setup needed, Textual handles its own output)
+            run_tui()
+        else:
+            # Set up logging for console mode
+            if args.quiet:
+                setup_logging(logging.WARNING)
+            elif args.verbose:
+                setup_logging(logging.DEBUG)
+            else:
+                setup_logging(logging.INFO)
+
+            # Run the console CLI
+            asyncio.run(run_console_cli())
+    finally:
+        # Flush traces on exit
+        flush_traces()
 
 
 if __name__ == "__main__":

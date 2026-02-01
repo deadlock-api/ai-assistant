@@ -13,6 +13,8 @@ dependencies = [
     "httpx>=0.28.0",
     "pywikibot>=9.0.0",
     "clickhouse-connect>=0.8.0",
+    "langfuse>=3.12.1",
+    "langsmith[claude-agent-sdk,otel]>=0.3.0",
 ]
 
 [project.scripts]

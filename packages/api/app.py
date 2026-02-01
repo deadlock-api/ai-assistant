@@ -1,11 +1,13 @@
 # Deadlock AI Assistant - FastAPI Application
 
 import os
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from packages.ai_assistant.tracing import configure_tracing, flush_traces
 from packages.api.auth import APIKeyAuthMiddleware
 from packages.api.chat import router as chat_router
 from packages.api.errors import RequestIDMiddleware, register_exception_handlers
@@ -29,10 +31,22 @@ def _get_cors_origins() -> list[str]:
 # Initialize logging at module load
 configure_logging()
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Application lifespan handler for startup and shutdown events."""
+    # Startup: Configure Langfuse tracing
+    configure_tracing()
+    yield
+    # Shutdown: Flush pending traces
+    flush_traces()
+
+
 app = FastAPI(
     title="Deadlock AI Assistant",
     description="Stateless AI assistant with REST API",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Register exception handlers for structured error responses
