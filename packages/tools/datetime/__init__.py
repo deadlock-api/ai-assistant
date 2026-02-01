@@ -33,7 +33,7 @@ class DateTimeTool(BaseTool):
         "year": 31536000,  # 365 days
     }
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         super().__init__(sse_callback, timeout)
 
     @property

@@ -28,13 +28,13 @@ class DeadlockAPIToolGenerator(OpenAPIToolGenerator):
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
     """
 
     def __init__(
         self,
         sse_callback: SSECallback,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> None:
         super().__init__(
             spec_url=DEADLOCK_API_SPEC_URL,
@@ -47,7 +47,7 @@ class DeadlockAPIToolGenerator(OpenAPIToolGenerator):
 
 async def create_deadlock_api_tools(
     sse_callback: SSECallback,
-    timeout: float = 30.0,
+    timeout: float = 60.0,
 ) -> dict[str, OpenAPITool]:
     """Create all Deadlock API tools from the OpenAPI spec.
 
@@ -56,7 +56,7 @@ async def create_deadlock_api_tools(
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
 
     Returns:
         Dictionary mapping tool names to OpenAPITool instances
@@ -82,7 +82,7 @@ class DeadlockAPICallTool(BaseTool):
     def __init__(
         self,
         sse_callback: SSECallback,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> None:
         super().__init__(sse_callback, timeout)
         self._http_client: httpx.AsyncClient | None = None

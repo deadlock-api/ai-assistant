@@ -40,7 +40,7 @@ def get_wiki_site() -> BaseSite:
 class WikiSearchTool(BaseTool):
     """Tool to search for pages on the Deadlock Wiki."""
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         super().__init__(sse_callback, timeout)
         self._site: BaseSite | None = None
 
@@ -113,7 +113,7 @@ class WikiSearchTool(BaseTool):
 class WikiGetPageTool(BaseTool):
     """Tool to retrieve page content from the Deadlock Wiki."""
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         super().__init__(sse_callback, timeout)
         self._site: BaseSite | None = None
 

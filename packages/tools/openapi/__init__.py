@@ -164,7 +164,7 @@ class OpenAPIToolGenerator:
         base_url: Base URL for API calls (optional, derived from spec if not provided)
         tool_prefix: Prefix for generated tool names (e.g., "deadlock_api")
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
         excluded_operations: Set of operation IDs to exclude from tool generation
     """
 
@@ -174,7 +174,7 @@ class OpenAPIToolGenerator:
         sse_callback: SSECallback,
         tool_prefix: str = "",
         base_url: str | None = None,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
         excluded_operations: set[str] | None = None,
     ) -> None:
         self._spec_url = spec_url

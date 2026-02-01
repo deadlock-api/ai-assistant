@@ -45,10 +45,10 @@ class ToolRegistry:
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Default timeout for tool executions (default: 30.0)
+        timeout: Default timeout for tool executions (default: 60.0)
     """
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         self._sse_callback = sse_callback
         self._timeout = timeout
 

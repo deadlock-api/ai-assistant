@@ -23,13 +23,13 @@ class AssetsAPIToolGenerator(OpenAPIToolGenerator):
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
     """
 
     def __init__(
         self,
         sse_callback: SSECallback,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> None:
         super().__init__(
             spec_url=ASSETS_API_SPEC_URL,
@@ -47,10 +47,10 @@ class GetHeroNameTool(BaseTool):
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
     """
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         super().__init__(sse_callback, timeout)
         self._http_client: httpx.AsyncClient | None = None
 
@@ -140,10 +140,10 @@ class GetItemNameTool(BaseTool):
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
     """
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         super().__init__(sse_callback, timeout)
         self._http_client: httpx.AsyncClient | None = None
 
@@ -227,7 +227,7 @@ class GetItemNameTool(BaseTool):
 
 async def create_assets_api_tools(
     sse_callback: SSECallback,
-    timeout: float = 30.0,
+    timeout: float = 60.0,
 ) -> dict[str, OpenAPITool]:
     """Create all Assets API tools from the OpenAPI spec.
 
@@ -236,7 +236,7 @@ async def create_assets_api_tools(
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for API calls (default: 30.0)
+        timeout: Timeout in seconds for API calls (default: 60.0)
 
     Returns:
         Dictionary mapping tool names to OpenAPITool instances

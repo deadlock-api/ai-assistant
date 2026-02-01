@@ -10,14 +10,14 @@ from packages.api.models import ChatToolEndEvent, ChatToolStartEvent
 
 
 def retry(
-    max_attempts: int = 3, base_delay: float = 1.0, max_delay: float = 30.0
+    max_attempts: int = 3, base_delay: float = 1.0, max_delay: float = 60.0
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator for retry with exponential backoff.
 
     Args:
         max_attempts: Maximum number of retry attempts (default: 3)
         base_delay: Initial delay between retries in seconds (default: 1.0)
-        max_delay: Maximum delay between retries in seconds (default: 30.0)
+        max_delay: Maximum delay between retries in seconds (default: 60.0)
     """
 
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -52,10 +52,10 @@ class BaseTool(ABC):
 
     Args:
         sse_callback: Callback function to emit SSE events
-        timeout: Timeout in seconds for tool execution (default: 30.0)
+        timeout: Timeout in seconds for tool execution (default: 60.0)
     """
 
-    def __init__(self, sse_callback: SSECallback, timeout: float = 30.0) -> None:
+    def __init__(self, sse_callback: SSECallback, timeout: float = 60.0) -> None:
         self._sse_callback = sse_callback
         self._timeout = timeout
 
