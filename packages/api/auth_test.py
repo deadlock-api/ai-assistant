@@ -281,3 +281,192 @@ async def test_verify_turnstile_token_missing_success_field() -> None:
         result = await verify_turnstile_token("test-token", "test-secret")
 
         assert result is False
+
+
+# Patreon token authentication tests
+
+
+def test_valid_patreon_token_allows_request() -> None:
+    """Test that a valid Patreon session token allows the request to proceed."""
+    from datetime import UTC, datetime, timedelta
+
+    from packages.api.patreon import PatreonSession
+
+    session = PatreonSession(
+        user_id="123456",
+        email="patron@example.com",
+        tier=2,
+        tier_name="Contributor",
+        rate_limit=500,
+        access_token="access-token",
+        refresh_token="refresh-token",
+        access_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        last_verified_at=datetime.now(UTC),
+    )
+
+    with (
+        mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get,
+        mock.patch("packages.api.auth.check_and_refresh_token", new_callable=mock.AsyncMock) as mock_refresh_token,
+        mock.patch(
+            "packages.api.auth.check_and_refresh_patron_status", new_callable=mock.AsyncMock
+        ) as mock_refresh_status,
+    ):
+        mock_get.return_value = session
+        mock_refresh_token.return_value = session
+        mock_refresh_status.return_value = session
+
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get("/protected", headers={"X-Patreon-Token": "valid-token"})
+
+        assert response.status_code == 200
+        assert response.json() == {"message": "success"}
+        mock_get.assert_called_once_with("valid-token")
+
+
+def test_invalid_patreon_token_returns_401() -> None:
+    """Test that an invalid Patreon session token returns 401 Unauthorized."""
+    with mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get:
+        mock_get.return_value = None
+
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get("/protected", headers={"X-Patreon-Token": "invalid-token"})
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "Invalid or expired Patreon session" in data["error"]
+
+
+def test_patreon_token_refresh_failure_returns_401_with_code() -> None:
+    """Test that Patreon token refresh failure returns 401 with TOKEN_REFRESH_FAILED code."""
+    from datetime import UTC, datetime, timedelta
+
+    from packages.api.patreon import PatreonAPIError, PatreonSession
+
+    session = PatreonSession(
+        user_id="123456",
+        email="patron@example.com",
+        tier=2,
+        tier_name="Contributor",
+        rate_limit=500,
+        access_token="access-token",
+        refresh_token="refresh-token",
+        access_token_expires_at=datetime.now(UTC) + timedelta(minutes=1),  # Expiring soon
+        last_verified_at=datetime.now(UTC),
+    )
+
+    with (
+        mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get,
+        mock.patch("packages.api.auth.check_and_refresh_token", new_callable=mock.AsyncMock) as mock_refresh,
+    ):
+        mock_get.return_value = session
+        mock_refresh.side_effect = PatreonAPIError("Refresh failed", code="TOKEN_REFRESH_FAILED")
+
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get("/protected", headers={"X-Patreon-Token": "expiring-token"})
+
+        assert response.status_code == 401
+        data = response.json()
+        assert data["code"] == "TOKEN_REFRESH_FAILED"
+        assert "re-authenticate" in data["error"]
+
+
+def test_api_key_takes_precedence_over_patreon_token() -> None:
+    """Test that API key is checked before Patreon token when both are provided."""
+    with (
+        mock.patch.dict(os.environ, {"API_KEYS": "valid-key"}),
+        mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get,
+    ):
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get(
+            "/protected",
+            headers={"X-API-Key": "valid-key", "X-Patreon-Token": "some-token"},
+        )
+
+        assert response.status_code == 200
+        # Patreon session should not be checked when API key is valid
+        mock_get.assert_not_called()
+
+
+def test_invalid_api_key_does_not_fall_through_to_patreon() -> None:
+    """Test that invalid API key returns 401 immediately without checking Patreon."""
+    with (
+        mock.patch.dict(os.environ, {"API_KEYS": "valid-key"}),
+        mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get,
+    ):
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get(
+            "/protected",
+            headers={"X-API-Key": "invalid-key", "X-Patreon-Token": "some-token"},
+        )
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "Invalid or missing API key" in data["error"]
+        # Patreon session should not be checked when API key is present (even if invalid)
+        mock_get.assert_not_called()
+
+
+def test_patreon_token_takes_precedence_over_turnstile() -> None:
+    """Test that Patreon token is checked before Turnstile when both are provided."""
+    from datetime import UTC, datetime, timedelta
+
+    from packages.api.patreon import PatreonSession
+
+    session = PatreonSession(
+        user_id="123456",
+        email="patron@example.com",
+        tier=1,
+        tier_name="Supporter",
+        rate_limit=200,
+        access_token="access-token",
+        refresh_token="refresh-token",
+        access_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        last_verified_at=datetime.now(UTC),
+    )
+
+    with (
+        mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get,
+        mock.patch("packages.api.auth.check_and_refresh_token", new_callable=mock.AsyncMock) as mock_refresh_token,
+        mock.patch(
+            "packages.api.auth.check_and_refresh_patron_status", new_callable=mock.AsyncMock
+        ) as mock_refresh_status,
+        mock.patch("packages.api.auth.verify_turnstile_token") as mock_verify,
+    ):
+        mock_get.return_value = session
+        mock_refresh_token.return_value = session
+        mock_refresh_status.return_value = session
+
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get(
+            "/protected",
+            headers={
+                "X-Patreon-Token": "valid-token",
+                "cf-turnstile-response": "some-token",
+            },
+        )
+
+        assert response.status_code == 200
+        # Turnstile should not be called when Patreon token is valid
+        mock_verify.assert_not_called()
+
+
+def test_patreon_redis_unavailable_returns_401() -> None:
+    """Test that Redis unavailability during Patreon auth returns 401."""
+    from packages.integrations.redis_client import RedisUnavailableError
+
+    with mock.patch("packages.api.auth.get_patreon_session", new_callable=mock.AsyncMock) as mock_get:
+        mock_get.side_effect = RedisUnavailableError("Redis not available")
+
+        app = create_test_app()
+        client = TestClient(app)
+        response = client.get("/protected", headers={"X-Patreon-Token": "some-token"})
+
+        assert response.status_code == 401
+        data = response.json()
+        assert "temporarily unavailable" in data["error"]

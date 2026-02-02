@@ -1,6 +1,6 @@
 # Deadlock AI Assistant API Integration Guide
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Base URL:** `https://your-deployment-url`
 
 This document provides comprehensive documentation for third-party developers integrating with the Deadlock AI Assistant
@@ -12,16 +12,22 @@ API.
 
 1. [Overview](#overview)
 2. [Authentication](#authentication)
-3. [Endpoints](#endpoints)
+3. [Patreon Authentication](#patreon-authentication)
+    - [OAuth2 Flow](#oauth2-flow)
+    - [Patron Tier Levels](#patron-tier-levels)
+    - [Patreon Auth Endpoints](#patreon-auth-endpoints)
+    - [Session Management](#session-management)
+    - [TypeScript Integration Example](#typescript-integration-example)
+4. [Endpoints](#endpoints)
     - [Health Check](#health-check)
     - [Chat](#chat)
-4. [Request/Response Models](#requestresponse-models)
-5. [Server-Sent Events (SSE)](#server-sent-events-sse)
-6. [Error Handling](#error-handling)
-7. [Status Codes](#status-codes)
-8. [Rate Limiting](#rate-limiting)
-9. [Integration Examples](#integration-examples)
-10. [Best Practices](#best-practices)
+5. [Request/Response Models](#requestresponse-models)
+6. [Server-Sent Events (SSE)](#server-sent-events-sse)
+7. [Error Handling](#error-handling)
+8. [Status Codes](#status-codes)
+9. [Rate Limiting](#rate-limiting)
+10. [Integration Examples](#integration-examples)
+11. [Best Practices](#best-practices)
 
 ---
 
@@ -33,7 +39,8 @@ include:
 - **Streaming Responses**: Real-time response streaming via Server-Sent Events (SSE)
 - **Conversation Persistence**: Optional conversation history tracking via conversation IDs
 - **Tool Integration**: AI can invoke tools during conversations with progress events
-- **Multiple Authentication Methods**: API keys or Cloudflare Turnstile tokens
+- **Multiple Authentication Methods**: API keys, Patreon OAuth2, or Cloudflare Turnstile tokens
+- **Patron Tiers**: Patreon supporters receive higher rate limits based on subscription level
 
 ---
 
@@ -43,12 +50,16 @@ All endpoints except public paths require authentication. The API supports two a
 
 ### Public Paths (No Authentication Required)
 
-| Path            | Description                        |
-|-----------------|------------------------------------|
-| `/health`       | Health check endpoint              |
-| `/docs`         | OpenAPI documentation (Swagger UI) |
-| `/openapi.json` | OpenAPI schema                     |
-| `/redoc`        | ReDoc documentation                |
+| Path                     | Description                        |
+|--------------------------|------------------------------------|
+| `/health`                | Health check endpoint              |
+| `/docs`                  | OpenAPI documentation (Swagger UI) |
+| `/openapi.json`          | OpenAPI schema                     |
+| `/redoc`                 | ReDoc documentation                |
+| `/auth/patreon`          | Patreon OAuth2 authorization       |
+| `/auth/patreon/callback` | Patreon OAuth2 callback            |
+| `/auth/patreon/logout`   | Patreon session logout             |
+| `/auth/patreon/status`   | Patreon patron status              |
 
 ### Method 1: API Key Authentication (Recommended)
 
@@ -76,11 +87,28 @@ Content-Type: application/json
 {"message": "Hello, assistant!"}
 ```
 
+### Method 3: Patreon Token Authentication
+
+For users who have authenticated via Patreon OAuth2, pass the session token in the `X-Patreon-Token` header.
+
+```http
+POST /chat HTTP/1.1
+Host: api.example.com
+X-Patreon-Token: your-patreon-session-token
+Content-Type: application/json
+
+{"message": "Hello, assistant!"}
+```
+
+This method provides tiered rate limits based on the user's Patreon subscription level. See
+[Patreon Authentication](#patreon-authentication) for the complete OAuth2 flow.
+
 ### Authentication Precedence
 
 1. If `X-API-Key` header is present, only API key validation is performed
-2. If `cf-turnstile-response` header is present (and no API key), Turnstile validation is performed
-3. If neither header is present, the request is rejected with 401 Unauthorized
+2. If `X-Patreon-Token` header is present (and no API key), Patreon session validation is performed
+3. If `cf-turnstile-response` header is present (and no API key or Patreon token), Turnstile validation is performed
+4. If no authentication header is present, the request is rejected with 401 Unauthorized
 
 ### Authentication Failure Response
 
@@ -91,6 +119,436 @@ Content-Type: application/json
   "request_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+---
+
+## Patreon Authentication
+
+Patreon OAuth2 integration allows users to authenticate with their Patreon account and receive higher API rate limits
+based on their subscription tier.
+
+### OAuth2 Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Client
+    participant API
+    participant Redis
+    participant Patreon
+
+    User->>Client: Click "Login with Patreon"
+    Client->>API: GET /auth/patreon
+    API->>Redis: Store state token (5 min TTL)
+    API-->>Client: 302 Redirect to Patreon
+    Client->>Patreon: User authorizes access
+    Patreon-->>Client: Redirect with code + state
+    Client->>API: GET /auth/patreon/callback?code=...&state=...
+    API->>Redis: Validate & consume state
+    API->>Patreon: Exchange code for tokens
+    Patreon-->>API: Access token + refresh token
+    API->>Patreon: Fetch user identity + memberships
+    Patreon-->>API: User data + patron tier
+    API->>Redis: Create session (7 day TTL)
+    API-->>Client: Session token + tier info
+    Client->>Client: Store session token
+    User->>Client: Make API request
+    Client->>API: POST /chat (X-Patreon-Token header)
+    API->>Redis: Validate session
+    API-->>Client: Response with patron rate limits
+```
+
+### Patron Tier Levels
+
+Patrons receive higher rate limits based on their subscription amount:
+
+| Tier | Name        | Minimum Pledge | Rate Limit     |
+|------|-------------|----------------|----------------|
+| 0    | Non-Patron  | -              | 100 req/min    |
+| 1    | Supporter   | $5/month       | 200 req/min    |
+| 2    | Contributor | $10/month      | 500 req/min    |
+| 3    | Champion    | $20/month      | 1000 req/min   |
+
+Tier thresholds and rate limits are configurable via environment variables.
+
+### Patreon Auth Endpoints
+
+All Patreon authentication endpoints are publicly accessible (no authentication required).
+
+#### GET /auth/patreon
+
+Initiate the Patreon OAuth2 authorization flow.
+
+**Response:** `302 Redirect` to Patreon authorization URL
+
+The endpoint generates a secure state parameter stored in Redis with a 5-minute TTL for CSRF protection.
+
+**Error Responses:**
+
+| Status | Description                         |
+|--------|-------------------------------------|
+| 503    | Patreon authentication not enabled  |
+
+---
+
+#### GET /auth/patreon/callback
+
+Handle the OAuth2 callback from Patreon.
+
+**Query Parameters:**
+
+| Parameter           | Type     | Description                                  |
+|---------------------|----------|----------------------------------------------|
+| `code`              | `string` | Authorization code from Patreon              |
+| `state`             | `string` | State parameter for CSRF validation          |
+| `error`             | `string` | Error code if user denied access (optional)  |
+| `error_description` | `string` | Human-readable error message (optional)      |
+
+**Success Response (200):**
+
+```json
+{
+  "session_token": "550e8400-e29b-41d4-a716-446655440000",
+  "tier": 2,
+  "tier_name": "Contributor",
+  "rate_limit": 500
+}
+```
+
+**Response Fields:**
+
+| Field           | Type     | Description                                    |
+|-----------------|----------|------------------------------------------------|
+| `session_token` | `string` | Session token for API authentication           |
+| `tier`          | `int`    | Patron tier level (0-3)                        |
+| `tier_name`     | `string` | Human-readable tier name                       |
+| `rate_limit`    | `int`    | Requests per minute for this tier              |
+
+**Error Responses:**
+
+| Status | Condition                                    |
+|--------|----------------------------------------------|
+| 400    | Missing state parameter                      |
+| 400    | Invalid or expired state parameter           |
+| 400    | Missing authorization code                   |
+| 400    | Patreon authorization denied by user         |
+| 400    | Token exchange failed                        |
+| 400    | Failed to fetch user data                    |
+| 503    | Patreon authentication not enabled           |
+
+---
+
+#### POST /auth/patreon/logout
+
+End an authenticated Patreon session.
+
+**Headers:**
+
+| Header            | Required | Description           |
+|-------------------|----------|-----------------------|
+| `X-Patreon-Token` | Yes      | The session token     |
+
+**Success Response (200):**
+
+```json
+{
+  "message": "Successfully logged out"
+}
+```
+
+**Error Responses:**
+
+| Status | Condition                      |
+|--------|--------------------------------|
+| 401    | Missing X-Patreon-Token header |
+| 401    | Invalid or expired session     |
+
+---
+
+#### GET /auth/patreon/status
+
+Get the current patron status for an authenticated session.
+
+**Headers:**
+
+| Header            | Required | Description           |
+|-------------------|----------|-----------------------|
+| `X-Patreon-Token` | Yes      | The session token     |
+
+**Success Response (200):**
+
+```json
+{
+  "authenticated": true,
+  "tier": 2,
+  "tier_name": "Contributor",
+  "rate_limit": 500,
+  "email": "u***@example.com",
+  "expires_at": "2024-01-15T10:30:00+00:00"
+}
+```
+
+**Response Fields:**
+
+| Field           | Type      | Description                                         |
+|-----------------|-----------|-----------------------------------------------------|
+| `authenticated` | `boolean` | Always `true` for valid sessions                    |
+| `tier`          | `int`     | Patron tier level (0-3)                             |
+| `tier_name`     | `string`  | Human-readable tier name                            |
+| `rate_limit`    | `int`     | Requests per minute for this tier                   |
+| `email`         | `string`  | Masked email address (e.g., `u***@example.com`)     |
+| `expires_at`    | `string`  | Session expiration timestamp (ISO 8601 format)      |
+
+**Error Responses:**
+
+| Status | Condition                      |
+|--------|--------------------------------|
+| 401    | Missing X-Patreon-Token header |
+| 401    | Invalid or expired session     |
+
+### Session Management
+
+#### Session Expiration
+
+Sessions have a **7-day rolling expiration**. The TTL is automatically extended when:
+
+- The access token is refreshed
+- The patron status is refreshed
+- Any session update occurs
+
+If a session is not used for 7 days, it expires and the user must re-authenticate.
+
+#### Automatic Token Refresh
+
+Access tokens from Patreon expire after approximately 1 hour. The API automatically refreshes tokens:
+
+1. On each authenticated request, the API checks if the access token expires within 5 minutes
+2. If expiring soon, the refresh token is used to obtain new tokens
+3. The session is updated with new tokens and the TTL is extended
+
+If token refresh fails (e.g., user revoked access on Patreon), the session is invalidated and the API returns:
+
+```json
+{
+  "error": "Session expired - token refresh failed",
+  "code": "TOKEN_REFRESH_FAILED"
+}
+```
+
+#### Periodic Patron Status Refresh
+
+To reflect subscription changes (upgrades, downgrades, cancellations), the API periodically refreshes patron status:
+
+1. Every hour, the API checks the user's current membership status with Patreon
+2. If the patron's tier has changed, the session is updated with the new tier and rate limit
+3. If the patron is no longer active, they are downgraded to tier 0
+
+This refresh happens in the background and doesn't block requests. If the refresh fails, the cached tier is used.
+
+### TypeScript Integration Example
+
+```typescript
+// Types for Patreon authentication
+interface PatreonCallbackResponse {
+    session_token: string;
+    tier: number;
+    tier_name: string;
+    rate_limit: number;
+}
+
+interface PatreonStatusResponse {
+    authenticated: boolean;
+    tier: number;
+    tier_name: string;
+    rate_limit: number;
+    email: string;
+    expires_at: string;
+}
+
+interface PatreonLogoutResponse {
+    message: string;
+}
+
+class PatreonAuthClient {
+    private baseUrl: string;
+    private sessionToken: string | null = null;
+
+    constructor(baseUrl: string) {
+        this.baseUrl = baseUrl;
+    }
+
+    /**
+     * Initiate Patreon login by redirecting to the auth endpoint.
+     * The API will redirect the user to Patreon's authorization page.
+     */
+    login(): void {
+        window.location.href = `${this.baseUrl}/auth/patreon`;
+    }
+
+    /**
+     * Handle the OAuth2 callback. Call this on the callback page
+     * to exchange the authorization code for a session token.
+     */
+    async handleCallback(): Promise<PatreonCallbackResponse> {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        const state = params.get('state');
+        const error = params.get('error');
+
+        if (error) {
+            throw new Error(`Patreon authorization failed: ${params.get('error_description') || error}`);
+        }
+
+        const response = await fetch(
+            `${this.baseUrl}/auth/patreon/callback?code=${code}&state=${state}`
+        );
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Callback failed');
+        }
+
+        const data: PatreonCallbackResponse = await response.json();
+        this.sessionToken = data.session_token;
+
+        // Store token for persistence (use secure storage in production)
+        localStorage.setItem('patreon_token', data.session_token);
+
+        return data;
+    }
+
+    /**
+     * Get the current patron status.
+     */
+    async getStatus(): Promise<PatreonStatusResponse> {
+        const token = this.getToken();
+        if (!token) {
+            throw new Error('Not authenticated');
+        }
+
+        const response = await fetch(`${this.baseUrl}/auth/patreon/status`, {
+            headers: {
+                'X-Patreon-Token': token,
+            },
+        });
+
+        if (response.status === 401) {
+            this.clearToken();
+            throw new Error('Session expired');
+        }
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to get status');
+        }
+
+        return response.json();
+    }
+
+    /**
+     * Log out and invalidate the session.
+     */
+    async logout(): Promise<void> {
+        const token = this.getToken();
+        if (!token) {
+            return;
+        }
+
+        await fetch(`${this.baseUrl}/auth/patreon/logout`, {
+            method: 'POST',
+            headers: {
+                'X-Patreon-Token': token,
+            },
+        });
+
+        this.clearToken();
+    }
+
+    /**
+     * Make an authenticated API request with the Patreon session token.
+     */
+    async chat(message: string, conversationId?: string): Promise<Response> {
+        const token = this.getToken();
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
+
+        if (token) {
+            headers['X-Patreon-Token'] = token;
+        }
+
+        return fetch(`${this.baseUrl}/chat`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                message,
+                conversation_id: conversationId,
+            }),
+        });
+    }
+
+    /**
+     * Check if the user is authenticated.
+     */
+    isAuthenticated(): boolean {
+        return this.getToken() !== null;
+    }
+
+    private getToken(): string | null {
+        if (this.sessionToken) {
+            return this.sessionToken;
+        }
+        return localStorage.getItem('patreon_token');
+    }
+
+    private clearToken(): void {
+        this.sessionToken = null;
+        localStorage.removeItem('patreon_token');
+    }
+}
+
+// Usage example
+const auth = new PatreonAuthClient('https://api.example.com');
+
+// On login button click
+document.getElementById('patreon-login')?.addEventListener('click', () => {
+    auth.login();
+});
+
+// On callback page load
+if (window.location.pathname === '/auth/callback') {
+    auth.handleCallback()
+        .then((data) => {
+            console.log(`Logged in as ${data.tier_name} (${data.rate_limit} req/min)`);
+            window.location.href = '/';
+        })
+        .catch((error) => {
+            console.error('Login failed:', error);
+        });
+}
+
+// Check status on page load
+if (auth.isAuthenticated()) {
+    auth.getStatus()
+        .then((status) => {
+            console.log(`Patron tier: ${status.tier_name}, expires: ${status.expires_at}`);
+        })
+        .catch(() => {
+            console.log('Session expired, please log in again');
+        });
+}
+```
+
+### Patreon Auth Public Paths
+
+The following Patreon authentication paths are exempt from authentication and rate limiting:
+
+| Path                      | Description                        |
+|---------------------------|------------------------------------|
+| `/auth/patreon`           | OAuth2 authorization redirect      |
+| `/auth/patreon/callback`  | OAuth2 callback handler            |
+| `/auth/patreon/logout`    | Session logout endpoint            |
+| `/auth/patreon/status`    | Patron status check                |
 
 ---
 
@@ -377,14 +835,15 @@ interface ChatToolEndEvent {
 
 ### Error Codes
 
-| Code                  | Description                                                        | Typical HTTP Status |
-|-----------------------|--------------------------------------------------------------------|---------------------|
-| `AUTH_FAILED`         | Authentication failed (invalid/missing API key or Turnstile token) | 401                 |
-| `VALIDATION_ERROR`    | Request body validation failed                                     | 400                 |
-| `RATE_LIMIT_EXCEEDED` | Rate limit exceeded (global, per-IP, or per-API key)               | 429                 |
-| `AGENT_ERROR`         | AI agent processing error                                          | 500, 503            |
-| `REDIS_ERROR`         | Storage service unavailable                                        | 503                 |
-| `INTERNAL_ERROR`      | Unexpected server error                                            | 500                 |
+| Code                   | Description                                                               | Typical HTTP Status |
+|------------------------|---------------------------------------------------------------------------|---------------------|
+| `AUTH_FAILED`          | Authentication failed (invalid/missing API key, Patreon, or Turnstile)    | 401                 |
+| `TOKEN_REFRESH_FAILED` | Patreon access token refresh failed (session invalidated)                 | 401                 |
+| `VALIDATION_ERROR`     | Request body validation failed                                            | 400                 |
+| `RATE_LIMIT_EXCEEDED`  | Rate limit exceeded (global, per-IP, per-API key, or per-patron)          | 429                 |
+| `AGENT_ERROR`          | AI agent processing error                                                 | 500, 503            |
+| `REDIS_ERROR`          | Storage service unavailable                                               | 503                 |
+| `INTERNAL_ERROR`       | Unexpected server error                                                   | 500                 |
 
 ### Error Response Format
 
@@ -432,15 +891,26 @@ Redis-backed counters with a fixed-window algorithm.
 
 ### Rate Limit Tiers
 
-Rate limits are applied in three tiers, checked in order of specificity:
+Rate limits are applied based on authentication method, checked in order of specificity:
 
-| Tier            | Scope              | Default Limit        | Description                                |
-|-----------------|--------------------|----------------------|--------------------------------------------|
-| **Per-API Key** | Individual API key | 500 requests/minute  | Applied when `X-API-Key` header is present |
-| **Per-IP**      | Client IP address  | 100 requests/minute  | Applied to all requests based on client IP |
-| **Global**      | All requests       | 1000 requests/minute | Applied across all API traffic             |
+| Tier                 | Scope                  | Default Limit        | Description                                       |
+|----------------------|------------------------|----------------------|---------------------------------------------------|
+| **Per-API Key**      | Individual API key     | 500 requests/minute  | Applied when `X-API-Key` header is present        |
+| **Per-Patron**       | Patreon user ID        | 200-1000 req/minute  | Based on Patreon subscription tier (see below)    |
+| **Per-IP**           | Client IP address      | 100 requests/minute  | Applied to unauthenticated requests               |
+| **Global**           | All requests           | 1000 requests/minute | Applied across all API traffic                    |
+
+**Patron Tier Rate Limits:**
+
+| Tier | Name        | Rate Limit     |
+|------|-------------|----------------|
+| 0    | Non-Patron  | 100 req/min    |
+| 1    | Supporter   | 200 req/min    |
+| 2    | Contributor | 500 req/min    |
+| 3    | Champion    | 1000 req/min   |
 
 A request is rejected if **any** tier's limit is exceeded. The most restrictive limit is reported in response headers.
+For patron-authenticated requests, the patron-specific limit replaces (not adds to) the IP-based limit.
 
 ### Rate Limit Headers
 
@@ -473,18 +943,22 @@ Retry-After: 45
 }
 ```
 
-The `error` message indicates which tier was exceeded: `global`, `ip`, or `api_key`.
+The `error` message indicates which tier was exceeded: `global`, `ip`, `api_key`, or `patron`.
 
 ### Paths Exempt from Rate Limiting
 
 The following paths are not subject to rate limiting:
 
-| Path            | Description              |
-|-----------------|--------------------------|
-| `/health`       | Health check endpoint    |
-| `/docs`         | Swagger UI documentation |
-| `/openapi.json` | OpenAPI schema           |
-| `/redoc`        | ReDoc documentation      |
+| Path                     | Description              |
+|--------------------------|--------------------------|
+| `/health`                | Health check endpoint    |
+| `/docs`                  | Swagger UI documentation |
+| `/openapi.json`          | OpenAPI schema           |
+| `/redoc`                 | ReDoc documentation      |
+| `/auth/patreon`          | Patreon OAuth2 redirect  |
+| `/auth/patreon/callback` | Patreon OAuth2 callback  |
+| `/auth/patreon/logout`   | Patreon logout           |
+| `/auth/patreon/status`   | Patreon status check     |
 
 ### Handling Rate Limits
 
@@ -880,6 +1354,7 @@ async function chatWithRetry(
 - Monitor `X-RateLimit-Remaining` headers and reduce request frequency when approaching zero
 - Handle `429 Too Many Requests` responses by waiting for the duration specified in `Retry-After`
 - Use API key authentication for higher rate limits (500/min vs 100/min for IP-based)
+- For end-user applications, consider [Patreon Authentication](#patreon-authentication) to provide tiered rate limits
 - See [Rate Limiting](#rate-limiting) for comprehensive details
 
 ---
@@ -917,6 +1392,14 @@ The full OpenAPI specification is available at:
 ---
 
 ## Changelog
+
+### Version 1.1.0
+
+- Added Patreon OAuth2 authentication
+- Added patron tier-based rate limiting
+- Added automatic token refresh for Patreon sessions
+- Added periodic patron status refresh (hourly) to reflect subscription changes
+- New endpoints: `/auth/patreon`, `/auth/patreon/callback`, `/auth/patreon/logout`, `/auth/patreon/status`
 
 ### Version 1.0.0
 

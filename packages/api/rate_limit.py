@@ -20,13 +20,23 @@ from packages.integrations.redis_client import (
 )
 
 # Paths that bypass rate limiting
-PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+PUBLIC_PATHS = {
+    "/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/auth/patreon",
+    "/auth/patreon/callback",
+    "/auth/patreon/logout",
+    "/auth/patreon/status",
+}
 
 # Redis key prefixes for rate limiting
 RATE_LIMIT_PREFIX = "ratelimit:"
 GLOBAL_KEY = f"{RATE_LIMIT_PREFIX}global"
 IP_KEY_PREFIX = f"{RATE_LIMIT_PREFIX}ip:"
 API_KEY_PREFIX = f"{RATE_LIMIT_PREFIX}apikey:"
+PATRON_KEY_PREFIX = f"{RATE_LIMIT_PREFIX}patron:"
 
 # Default rate limits (requests per window)
 DEFAULT_GLOBAL_LIMIT = 1000
@@ -65,7 +75,7 @@ class RateLimitResult:
     limit: int
     remaining: int
     reset_seconds: int
-    limit_type: str  # "global", "ip", or "api_key"
+    limit_type: str  # "global", "ip", "api_key", or "patron"
 
 
 def _parse_positive_int(value: str, name: str) -> int:
@@ -288,8 +298,9 @@ async def check_rate_limits(
 
     Checks rate limits in order of specificity:
     1. Per-API key (if API key is present)
-    2. Per-IP
-    3. Global
+    2. Per-patron (if Patreon session is present, uses tier-specific limit)
+    3. Per-IP (fallback for unauthenticated requests)
+    4. Global
 
     Args:
         request: The FastAPI request.
@@ -325,19 +336,47 @@ async def check_rate_limits(
                 limit_type="api_key",
             )
 
-    # Check per-IP limit
-    client_ip = _get_client_ip(request, config)
-    ip_key = f"{IP_KEY_PREFIX}{client_ip}"
-    ip_count, ip_ttl = await _check_rate_limit(ip_key, config.window_seconds)
-    ip_remaining = max(0, config.ip_limit - ip_count)
-    if ip_count > config.ip_limit:
-        return RateLimitResult(
-            allowed=False,
-            limit=config.ip_limit,
-            remaining=0,
-            reset_seconds=ip_ttl,
-            limit_type="ip",
-        )
+    # Check for patron authentication (set by AuthMiddleware)
+    patron_user_id = getattr(request.state, "patron_user_id", None)
+    patron_rate_limit = getattr(request.state, "patron_rate_limit", None)
+
+    # Track patron rate limit results if authenticated
+    patron_count = 0
+    patron_ttl = 0
+    patron_remaining = 0
+
+    # Check per-patron limit if patron is authenticated
+    if patron_user_id is not None and patron_rate_limit is not None:
+        patron_key = f"{PATRON_KEY_PREFIX}{patron_user_id}"
+        patron_count, patron_ttl = await _check_rate_limit(patron_key, config.window_seconds)
+        patron_remaining = max(0, patron_rate_limit - patron_count)
+        if patron_count > patron_rate_limit:
+            return RateLimitResult(
+                allowed=False,
+                limit=patron_rate_limit,
+                remaining=0,
+                reset_seconds=patron_ttl,
+                limit_type="patron",
+            )
+
+    # Check per-IP limit (only for non-patron requests)
+    ip_count = 0
+    ip_ttl = 0
+    ip_remaining = 0
+
+    if patron_user_id is None:
+        client_ip = _get_client_ip(request, config)
+        ip_key = f"{IP_KEY_PREFIX}{client_ip}"
+        ip_count, ip_ttl = await _check_rate_limit(ip_key, config.window_seconds)
+        ip_remaining = max(0, config.ip_limit - ip_count)
+        if ip_count > config.ip_limit:
+            return RateLimitResult(
+                allowed=False,
+                limit=config.ip_limit,
+                remaining=0,
+                reset_seconds=ip_ttl,
+                limit_type="ip",
+            )
 
     # Check global limit
     global_count, global_ttl = await _check_rate_limit(GLOBAL_KEY, config.window_seconds)
@@ -353,7 +392,11 @@ async def check_rate_limits(
 
     # Request is allowed - return the most restrictive remaining count
     # This helps clients understand their most limiting factor
-    if api_key and api_key_remaining <= ip_remaining and api_key_remaining <= global_remaining:
+    if (
+        api_key
+        and api_key_remaining <= global_remaining
+        and (patron_user_id is None or api_key_remaining <= patron_remaining)
+    ):
         return RateLimitResult(
             allowed=True,
             limit=config.api_key_limit,
@@ -362,7 +405,18 @@ async def check_rate_limits(
             limit_type="api_key",
         )
 
-    if ip_remaining <= global_remaining:
+    # Patron rate limit (replaces IP rate limit for authenticated patrons)
+    if patron_user_id is not None and patron_rate_limit is not None and patron_remaining <= global_remaining:
+        return RateLimitResult(
+            allowed=True,
+            limit=patron_rate_limit,
+            remaining=patron_remaining,
+            reset_seconds=patron_ttl,
+            limit_type="patron",
+        )
+
+    # IP rate limit (for non-patron requests)
+    if patron_user_id is None and ip_remaining <= global_remaining:
         return RateLimitResult(
             allowed=True,
             limit=config.ip_limit,

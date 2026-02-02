@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from packages.ai_assistant.tracing import configure_tracing, flush_traces
 from packages.api.auth import APIKeyAuthMiddleware
+from packages.api.auth_patreon import router as patreon_auth_router
 from packages.api.chat import router as chat_router
 from packages.api.errors import RequestIDMiddleware, register_exception_handlers
 from packages.api.health import router as health_router
@@ -73,3 +74,4 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(chat_router)
+app.include_router(patreon_auth_router)

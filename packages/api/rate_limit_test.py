@@ -256,6 +256,8 @@ class TestCheckRateLimits:
         mock_request = MagicMock()
         mock_request.headers = {"X-API-Key": "test-key"}
         mock_request.client = MagicMock(host="192.168.1.1")
+        # Ensure no patron attributes (not authenticated via Patreon)
+        mock_request.state = MagicMock(spec=[])
 
         config = self._make_config()
 
@@ -278,6 +280,8 @@ class TestCheckRateLimits:
         mock_request = MagicMock()
         mock_request.headers = {"X-API-Key": "test-key"}
         mock_request.client = MagicMock(host="192.168.1.1")
+        # Ensure no patron attributes (not authenticated via Patreon)
+        mock_request.state = MagicMock(spec=[])
 
         config = self._make_config(api_key_limit=10)
 
@@ -299,6 +303,8 @@ class TestCheckRateLimits:
         mock_request = MagicMock()
         mock_request.headers = {}  # No API key
         mock_request.client = MagicMock(host="192.168.1.1")
+        # Ensure no patron attributes (not authenticated via Patreon)
+        mock_request.state = MagicMock(spec=[])
 
         config = self._make_config(ip_limit=10)
 
@@ -320,6 +326,8 @@ class TestCheckRateLimits:
         mock_request = MagicMock()
         mock_request.headers = {}  # No API key
         mock_request.client = MagicMock(host="192.168.1.1")
+        # Ensure no patron attributes (not authenticated via Patreon)
+        mock_request.state = MagicMock(spec=[])
 
         config = self._make_config(global_limit=10, ip_limit=100)
 
@@ -493,3 +501,172 @@ class TestRateLimitErrorResponse:
             data = response.json()
             assert "request_id" in data
             assert data["request_id"] != ""
+
+
+class TestPatronRateLimiting:
+    """Tests for patron-specific rate limiting."""
+
+    def _make_config(
+        self,
+        global_limit: int = 1000,
+        ip_limit: int = 100,
+        api_key_limit: int = 500,
+    ) -> RateLimitConfig:
+        """Create a config for testing."""
+        return RateLimitConfig(
+            global_limit=global_limit,
+            ip_limit=ip_limit,
+            api_key_limit=api_key_limit,
+            window_seconds=60,
+            enabled=True,
+            trust_proxy=False,
+            proxy_count=1,
+        )
+
+    @pytest.mark.asyncio
+    async def test_patron_uses_tier_specific_rate_limit(self) -> None:
+        """Test that authenticated patrons use their tier-specific rate limit."""
+        mock_request = MagicMock()
+        mock_request.headers = {}  # No API key
+        mock_request.client = MagicMock(host="192.168.1.1")
+        # Patron authenticated with tier 2 (500 req/min)
+        mock_request.state = MagicMock(spec=["patron_user_id", "patron_rate_limit"])
+        mock_request.state.patron_user_id = "123456"
+        mock_request.state.patron_rate_limit = 500
+
+        config = self._make_config()
+
+        with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
+            # Return counts under all limits
+            mock_check.side_effect = [
+                (50, 60),  # Patron check (50 of 500)
+                (100, 60),  # Global check
+            ]
+
+            result = await check_rate_limits(mock_request, config)
+
+            assert result.allowed is True
+            assert result.limit_type == "patron"
+            assert result.limit == 500
+            assert result.remaining == 450  # 500 - 50
+
+    @pytest.mark.asyncio
+    async def test_patron_rate_limit_uses_user_id_key(self) -> None:
+        """Test that patron rate limit uses ratelimit:patron:{user_id} key."""
+        from packages.api.rate_limit import PATRON_KEY_PREFIX
+
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.client = MagicMock(host="192.168.1.1")
+        mock_request.state = MagicMock(spec=["patron_user_id", "patron_rate_limit"])
+        mock_request.state.patron_user_id = "user-12345"
+        mock_request.state.patron_rate_limit = 200
+
+        config = self._make_config()
+
+        with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
+            mock_check.side_effect = [
+                (10, 60),  # Patron check
+                (50, 60),  # Global check
+            ]
+
+            await check_rate_limits(mock_request, config)
+
+            # Check that patron-specific key was used
+            patron_call = mock_check.call_args_list[0]
+            assert patron_call[0][0] == f"{PATRON_KEY_PREFIX}user-12345"
+
+    @pytest.mark.asyncio
+    async def test_patron_bypasses_ip_rate_limit(self) -> None:
+        """Test that authenticated patrons bypass IP-based rate limiting."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.client = MagicMock(host="192.168.1.1")
+        mock_request.state = MagicMock(spec=["patron_user_id", "patron_rate_limit"])
+        mock_request.state.patron_user_id = "123456"
+        mock_request.state.patron_rate_limit = 500
+
+        config = self._make_config(ip_limit=10)  # Very low IP limit
+
+        with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
+            # Only patron and global checks should happen (no IP check)
+            mock_check.side_effect = [
+                (50, 60),  # Patron check
+                (100, 60),  # Global check
+            ]
+
+            result = await check_rate_limits(mock_request, config)
+
+            assert result.allowed is True
+            # Should only have 2 calls (patron + global), not 3 (patron + ip + global)
+            assert mock_check.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_patron_rate_limit_exceeded_returns_patron_type(self) -> None:
+        """Test that exceeded patron rate limit returns limit_type='patron'."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.client = MagicMock(host="192.168.1.1")
+        mock_request.state = MagicMock(spec=["patron_user_id", "patron_rate_limit"])
+        mock_request.state.patron_user_id = "123456"
+        mock_request.state.patron_rate_limit = 200
+
+        config = self._make_config()
+
+        with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
+            # Patron limit exceeded
+            mock_check.return_value = (201, 45)
+
+            result = await check_rate_limits(mock_request, config)
+
+            assert result.allowed is False
+            assert result.limit_type == "patron"
+            assert result.limit == 200
+            assert result.remaining == 0
+            assert result.reset_seconds == 45
+
+    @pytest.mark.asyncio
+    async def test_non_patron_uses_ip_rate_limit(self) -> None:
+        """Test that non-patrons continue using IP-based rate limits."""
+        mock_request = MagicMock()
+        mock_request.headers = {}
+        mock_request.client = MagicMock(host="192.168.1.1")
+        # No patron attributes
+        mock_request.state = MagicMock(spec=[])
+
+        config = self._make_config(ip_limit=100)
+
+        with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
+            mock_check.side_effect = [
+                (50, 60),  # IP check
+                (100, 60),  # Global check
+            ]
+
+            result = await check_rate_limits(mock_request, config)
+
+            assert result.allowed is True
+            # Should use IP limit type for non-patrons
+            assert result.limit_type == "ip"
+            assert result.limit == 100
+
+    def test_patron_rate_limit_error_message(self) -> None:
+        """Test that patron rate limit error includes 'patron' in message."""
+        with mock.patch(
+            "packages.api.rate_limit.check_rate_limits",
+            new_callable=AsyncMock,
+            return_value=RateLimitResult(
+                allowed=False,
+                limit=200,
+                remaining=0,
+                reset_seconds=60,
+                limit_type="patron",
+            ),
+        ):
+            app = create_test_app()
+            client = TestClient(app)
+            response = client.get("/protected")
+
+            assert response.status_code == 429
+            data = response.json()
+            assert "patron" in data["error"]
+            assert data["code"] == "RATE_LIMIT_EXCEEDED"

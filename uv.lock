@@ -13,6 +13,7 @@ dependencies = [
     { name = "httpx" },
     { name = "langfuse" },
     { name = "langsmith", extra = ["claude-agent-sdk", "otel"] },
+    { name = "patreon" },
     { name = "pydantic" },
     { name = "pywikibot" },
     { name = "redis" },
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "langfuse", specifier = ">=3.12.1" },
     { name = "langsmith", extras = ["claude-agent-sdk", "otel"], specifier = ">=0.3.0" },
+    { name = "patreon", specifier = ">=0.5.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pywikibot", specifier = ">=9.0.0" },
     { name = "redis", specifier = ">=5.0.0" },
@@ -750,6 +752,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/a1/d4/1fc4078c65507b51b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484", size = 66469, upload-time = "2025-04-19T11:48:57.875Z" },
 ]
+
+[[package]]
+name = "patreon"
+version = "0.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/90/06/1ffeec2a05827cee312667daa65a0fc1581768af37feb4e5cb5765aa7e27/patreon-0.5.0.tar.gz", hash = "sha256:04ad0360e7acc38a85beafa8d44eeeafd3c31d136488aa4de707526163682ca4", size = 9819, upload-time = "2018-01-30T20:17:27.185Z" }
 
 [[package]]
 name = "platformdirs"
