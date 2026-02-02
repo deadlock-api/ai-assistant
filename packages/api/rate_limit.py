@@ -178,18 +178,23 @@ async def check_rate_limits(
     """
     api_key = request.headers.get("X-API-Key")
 
+    # Track API key rate limit results if present
+    api_key_count = 0
+    api_key_ttl = 0
+    api_key_remaining = 0
+
     # Check per-API key limit if API key is present
     if api_key:
         key_hash = _hash_api_key(api_key)
         key = f"{API_KEY_PREFIX}{key_hash}"
-        count, ttl = await _check_rate_limit(key, config.window_seconds)
-        remaining = max(0, config.api_key_limit - count)
-        if count > config.api_key_limit:
+        api_key_count, api_key_ttl = await _check_rate_limit(key, config.window_seconds)
+        api_key_remaining = max(0, config.api_key_limit - api_key_count)
+        if api_key_count > config.api_key_limit:
             return RateLimitResult(
                 allowed=False,
                 limit=config.api_key_limit,
                 remaining=0,
-                reset_seconds=ttl,
+                reset_seconds=api_key_ttl,
                 limit_type="api_key",
             )
 
@@ -221,16 +226,14 @@ async def check_rate_limits(
 
     # Request is allowed - return the most restrictive remaining count
     # This helps clients understand their most limiting factor
-    if api_key:
-        api_key_remaining = remaining
-        if api_key_remaining <= ip_remaining and api_key_remaining <= global_remaining:
-            return RateLimitResult(
-                allowed=True,
-                limit=config.api_key_limit,
-                remaining=api_key_remaining,
-                reset_seconds=ttl,
-                limit_type="api_key",
-            )
+    if api_key and api_key_remaining <= ip_remaining and api_key_remaining <= global_remaining:
+        return RateLimitResult(
+            allowed=True,
+            limit=config.api_key_limit,
+            remaining=api_key_remaining,
+            reset_seconds=api_key_ttl,
+            limit_type="api_key",
+        )
 
     if ip_remaining <= global_remaining:
         return RateLimitResult(

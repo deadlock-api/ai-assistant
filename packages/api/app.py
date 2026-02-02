@@ -54,11 +54,11 @@ app = FastAPI(
 register_exception_handlers(app)
 
 # Middleware order matters (LIFO - last added runs first):
-# 1. RequestIDMiddleware - generates request ID (runs first)
-# 2. RequestLoggingMiddleware - logs after response (needs request ID from context)
-# 3. RateLimitMiddleware - enforces rate limits (runs after logging, before auth)
-# 4. APIKeyAuthMiddleware - validates authentication
-# 5. CORSMiddleware - handles preflight OPTIONS requests (must run before auth)
+# 1. CORSMiddleware (added last) - handles preflight OPTIONS requests (must run before auth)
+# 2. RequestIDMiddleware - generates request ID (runs early for context)
+# 3. RequestLoggingMiddleware - logs requests (needs request ID from context)
+# 4. RateLimitMiddleware - enforces rate limits (runs before auth, after logging)
+# 5. APIKeyAuthMiddleware (added first) - validates authentication (runs last, after rate limit)
 app.add_middleware(cast(Any, APIKeyAuthMiddleware))
 app.add_middleware(cast(Any, RateLimitMiddleware))
 app.add_middleware(cast(Any, RequestLoggingMiddleware))
