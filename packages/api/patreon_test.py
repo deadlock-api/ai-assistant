@@ -11,22 +11,17 @@ import httpx
 import pytest
 
 from packages.api.patreon import (
-    DEFAULT_TIER_0_LIMIT,
-    DEFAULT_TIER_1_CENTS,
-    DEFAULT_TIER_1_LIMIT,
-    DEFAULT_TIER_2_CENTS,
-    DEFAULT_TIER_2_LIMIT,
-    DEFAULT_TIER_3_CENTS,
-    DEFAULT_TIER_3_LIMIT,
+    DEFAULT_NON_PATRON_RATE_LIMIT,
+    DEFAULT_NON_PATRON_TIER_NAME,
+    PATREON_TIERS,
     PATRON_STATUS_REFRESH_INTERVAL_SECONDS,
     SESSION_TTL_SECONDS,
     STATE_TTL_SECONDS,
-    TIER_NAMES,
+    TIER_BY_ID,
     PatreonAPIError,
     PatreonConfig,
     PatreonConfigError,
     PatreonSession,
-    PatreonTierConfig,
     PatreonTokenResponse,
     PatreonUserData,
     build_authorization_url,
@@ -69,15 +64,15 @@ def _make_test_config() -> PatreonConfig:
         client_secret="test-client-secret",
         redirect_uri="https://api.example.com/auth/patreon/callback",
         campaign_id="test-campaign-id",
-        tier_1=PatreonTierConfig(threshold_cents=DEFAULT_TIER_1_CENTS, rate_limit=DEFAULT_TIER_1_LIMIT),
-        tier_2=PatreonTierConfig(threshold_cents=DEFAULT_TIER_2_CENTS, rate_limit=DEFAULT_TIER_2_LIMIT),
-        tier_3=PatreonTierConfig(threshold_cents=DEFAULT_TIER_3_CENTS, rate_limit=DEFAULT_TIER_3_LIMIT),
-        default_rate_limit=DEFAULT_TIER_0_LIMIT,
     )
 
 
+# Test tier for convenience (VIP Hexe - €3/month)
+TEST_TIER = PATREON_TIERS[0]
+
+
 def _make_test_session(
-    tier: int = 1,
+    tier_id: str | None = None,
     access_token_expires_at: datetime | None = None,
     last_verified_at: datetime | None = None,
 ) -> PatreonSession:
@@ -88,12 +83,21 @@ def _make_test_session(
     if last_verified_at is None:
         last_verified_at = now
 
+    # Default to test tier if not specified
+    if tier_id is None:
+        tier_id = TEST_TIER.tier_id
+
+    # Look up tier info
+    tier = TIER_BY_ID.get(tier_id) if tier_id else None
+    tier_name = tier.name if tier else DEFAULT_NON_PATRON_TIER_NAME
+    rate_limit = tier.rate_limit if tier else DEFAULT_NON_PATRON_RATE_LIMIT
+
     return PatreonSession(
         user_id="123456",
         email="user@example.com",
-        tier=tier,
-        tier_name=TIER_NAMES[tier],
-        rate_limit=[DEFAULT_TIER_0_LIMIT, DEFAULT_TIER_1_LIMIT, DEFAULT_TIER_2_LIMIT, DEFAULT_TIER_3_LIMIT][tier],
+        tier_id=tier_id,
+        tier_name=tier_name,
+        rate_limit=rate_limit,
         access_token="test-access-token",
         refresh_token="test-refresh-token",
         access_token_expires_at=access_token_expires_at,
@@ -131,46 +135,6 @@ class TestPatreonConfig:
             assert config.redirect_uri == "https://example.com/callback"
             assert config.campaign_id == "campaign-789"
 
-    def test_config_uses_default_tier_thresholds(self) -> None:
-        """Test that default tier thresholds are used when not specified."""
-        env = {
-            "PATREON_CLIENT_ID": "client-123",
-            "PATREON_CLIENT_SECRET": "secret-456",
-            "PATREON_REDIRECT_URI": "https://example.com/callback",
-            "PATREON_CAMPAIGN_ID": "campaign-789",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = reload_patreon_config()
-            assert config.tier_1.threshold_cents == DEFAULT_TIER_1_CENTS
-            assert config.tier_2.threshold_cents == DEFAULT_TIER_2_CENTS
-            assert config.tier_3.threshold_cents == DEFAULT_TIER_3_CENTS
-            assert config.tier_1.rate_limit == DEFAULT_TIER_1_LIMIT
-            assert config.tier_2.rate_limit == DEFAULT_TIER_2_LIMIT
-            assert config.tier_3.rate_limit == DEFAULT_TIER_3_LIMIT
-
-    def test_config_respects_custom_tier_thresholds(self) -> None:
-        """Test that custom tier thresholds override defaults."""
-        env = {
-            "PATREON_CLIENT_ID": "client-123",
-            "PATREON_CLIENT_SECRET": "secret-456",
-            "PATREON_REDIRECT_URI": "https://example.com/callback",
-            "PATREON_CAMPAIGN_ID": "campaign-789",
-            "PATREON_TIER_1_CENTS": "300",
-            "PATREON_TIER_2_CENTS": "800",
-            "PATREON_TIER_3_CENTS": "1500",
-            "PATREON_TIER_1_LIMIT": "150",
-            "PATREON_TIER_2_LIMIT": "400",
-            "PATREON_TIER_3_LIMIT": "800",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = reload_patreon_config()
-            assert config.tier_1.threshold_cents == 300
-            assert config.tier_2.threshold_cents == 800
-            assert config.tier_3.threshold_cents == 1500
-            assert config.tier_1.rate_limit == 150
-            assert config.tier_2.rate_limit == 400
-            assert config.tier_3.rate_limit == 800
-
     def test_config_raises_error_for_missing_required_values(self) -> None:
         """Test that PatreonConfigError is raised for missing required values."""
         env = {"PATREON_CLIENT_ID": "client-123"}
@@ -181,99 +145,84 @@ class TestPatreonConfig:
             assert "PATREON_REDIRECT_URI" in str(exc_info.value)
             assert "PATREON_CAMPAIGN_ID" in str(exc_info.value)
 
-    def test_config_raises_error_for_invalid_tier_value(self) -> None:
-        """Test that PatreonConfigError is raised for invalid tier values."""
-        env = {
-            "PATREON_CLIENT_ID": "client-123",
-            "PATREON_CLIENT_SECRET": "secret-456",
-            "PATREON_REDIRECT_URI": "https://example.com/callback",
-            "PATREON_CAMPAIGN_ID": "campaign-789",
-            "PATREON_TIER_1_CENTS": "not-a-number",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            with pytest.raises(PatreonConfigError) as exc_info:
-                reload_patreon_config()
-            assert "PATREON_TIER_1_CENTS" in str(exc_info.value)
-            assert "must be an integer" in str(exc_info.value)
 
-    def test_config_raises_error_for_non_positive_tier_value(self) -> None:
-        """Test that PatreonConfigError is raised for non-positive tier values."""
-        env = {
-            "PATREON_CLIENT_ID": "client-123",
-            "PATREON_CLIENT_SECRET": "secret-456",
-            "PATREON_REDIRECT_URI": "https://example.com/callback",
-            "PATREON_CAMPAIGN_ID": "campaign-789",
-            "PATREON_TIER_1_LIMIT": "0",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            with pytest.raises(PatreonConfigError) as exc_info:
-                reload_patreon_config()
-            assert "PATREON_TIER_1_LIMIT" in str(exc_info.value)
-            assert "positive integer" in str(exc_info.value)
+class TestHardcodedTiers:
+    """Tests for hardcoded tier configuration."""
+
+    def test_all_tiers_have_unique_ids(self) -> None:
+        """Test that all tier IDs are unique."""
+        tier_ids = [tier.tier_id for tier in PATREON_TIERS]
+        assert len(tier_ids) == len(set(tier_ids))
+
+    def test_tier_by_id_lookup_works(self) -> None:
+        """Test that TIER_BY_ID lookup returns correct tiers."""
+        for tier in PATREON_TIERS:
+            assert TIER_BY_ID[tier.tier_id] is tier
+
+    def test_tiers_ordered_by_rate_limit(self) -> None:
+        """Test that tiers are ordered from lowest to highest rate limit."""
+        rate_limits = [tier.rate_limit for tier in PATREON_TIERS]
+        assert rate_limits == sorted(rate_limits)
+
+    def test_expected_tier_count(self) -> None:
+        """Test that we have 7 configured tiers."""
+        assert len(PATREON_TIERS) == 7
 
 
 class TestDeterminePatronTier:
     """Tests for determine_patron_tier function."""
 
-    def test_returns_tier_0_for_none_membership(self) -> None:
-        """Test that tier 0 is returned for None membership data."""
-        config = _make_test_config()
-        result = determine_patron_tier(None, config)
-        assert result.tier == 0
-        assert result.tier_name == TIER_NAMES[0]
-        assert result.rate_limit == DEFAULT_TIER_0_LIMIT
+    def test_returns_non_patron_for_none_membership(self) -> None:
+        """Test that non-patron tier is returned for None membership data."""
+        result = determine_patron_tier(None)
+        assert result.tier_id is None
+        assert result.tier_name == DEFAULT_NON_PATRON_TIER_NAME
+        assert result.rate_limit == DEFAULT_NON_PATRON_RATE_LIMIT
 
-    def test_returns_tier_0_for_empty_membership(self) -> None:
-        """Test that tier 0 is returned for empty membership data."""
-        config = _make_test_config()
-        result = determine_patron_tier({}, config)
-        assert result.tier == 0
-        assert result.tier_name == TIER_NAMES[0]
-        assert result.rate_limit == DEFAULT_TIER_0_LIMIT
+    def test_returns_non_patron_for_empty_membership(self) -> None:
+        """Test that non-patron tier is returned for empty membership data."""
+        result = determine_patron_tier({})
+        assert result.tier_id is None
+        assert result.tier_name == DEFAULT_NON_PATRON_TIER_NAME
+        assert result.rate_limit == DEFAULT_NON_PATRON_RATE_LIMIT
 
-    def test_returns_tier_0_for_null_pledge_amount(self) -> None:
-        """Test that tier 0 is returned when pledge amount is None."""
-        config = _make_test_config()
-        result = determine_patron_tier({"currently_entitled_amount_cents": None}, config)
-        assert result.tier == 0
+    def test_returns_non_patron_for_empty_tier_list(self) -> None:
+        """Test that non-patron tier is returned when entitled_tier_ids is empty."""
+        result = determine_patron_tier({"entitled_tier_ids": []})
+        assert result.tier_id is None
+        assert result.rate_limit == DEFAULT_NON_PATRON_RATE_LIMIT
 
-    def test_returns_tier_0_for_pledge_below_tier_1(self) -> None:
-        """Test that tier 0 is returned for pledge below tier 1 threshold."""
-        config = _make_test_config()
-        result = determine_patron_tier({"currently_entitled_amount_cents": 400}, config)
-        assert result.tier == 0
-        assert result.rate_limit == DEFAULT_TIER_0_LIMIT
+    def test_returns_correct_tier_for_known_tier_id(self) -> None:
+        """Test that correct tier is returned for a known tier ID."""
+        # Test with VIP Hexe tier (€3/month, 30 req)
+        tier = PATREON_TIERS[0]
+        result = determine_patron_tier({"entitled_tier_ids": [tier.tier_id]})
+        assert result.tier_id == tier.tier_id
+        assert result.tier_name == tier.name
+        assert result.rate_limit == tier.rate_limit
 
-    def test_returns_tier_1_for_exact_threshold(self) -> None:
-        """Test that tier 1 is returned for exact tier 1 threshold."""
-        config = _make_test_config()
-        result = determine_patron_tier({"currently_entitled_amount_cents": DEFAULT_TIER_1_CENTS}, config)
-        assert result.tier == 1
-        assert result.tier_name == TIER_NAMES[1]
-        assert result.rate_limit == DEFAULT_TIER_1_LIMIT
+    def test_returns_highest_tier_when_multiple_entitled(self) -> None:
+        """Test that highest rate limit tier is returned when multiple are entitled."""
+        # Give both lowest and highest tier
+        lowest_tier = PATREON_TIERS[0]  # 30 req
+        highest_tier = PATREON_TIERS[-1]  # 2000 req
+        result = determine_patron_tier({"entitled_tier_ids": [lowest_tier.tier_id, highest_tier.tier_id]})
+        assert result.tier_id == highest_tier.tier_id
+        assert result.rate_limit == highest_tier.rate_limit
 
-    def test_returns_tier_2_for_tier_2_amount(self) -> None:
-        """Test that tier 2 is returned for tier 2 pledge amount."""
-        config = _make_test_config()
-        result = determine_patron_tier({"currently_entitled_amount_cents": 1500}, config)
-        assert result.tier == 2
-        assert result.tier_name == TIER_NAMES[2]
-        assert result.rate_limit == DEFAULT_TIER_2_LIMIT
+    def test_returns_non_patron_for_unknown_tier_id(self) -> None:
+        """Test that non-patron tier is returned for unknown tier ID."""
+        result = determine_patron_tier({"entitled_tier_ids": ["unknown-tier-id"]})
+        assert result.tier_id is None
+        assert result.rate_limit == DEFAULT_NON_PATRON_RATE_LIMIT
 
-    def test_returns_tier_3_for_high_pledge(self) -> None:
-        """Test that tier 3 is returned for high pledge amount."""
-        config = _make_test_config()
-        result = determine_patron_tier({"currently_entitled_amount_cents": 5000}, config)
-        assert result.tier == 3
-        assert result.tier_name == TIER_NAMES[3]
-        assert result.rate_limit == DEFAULT_TIER_3_LIMIT
-
-    def test_tier_determination_uses_highest_matching_tier(self) -> None:
-        """Test that the highest matching tier is returned."""
-        config = _make_test_config()
-        # Exactly at tier 3 threshold
-        result = determine_patron_tier({"currently_entitled_amount_cents": DEFAULT_TIER_3_CENTS}, config)
-        assert result.tier == 3
+    def test_all_hardcoded_tiers_work(self) -> None:
+        """Test that all hardcoded tier IDs are recognized."""
+        for tier in PATREON_TIERS:
+            result = determine_patron_tier({"entitled_tier_ids": [tier.tier_id]})
+            assert result.tier_id == tier.tier_id
+            assert result.tier_name == tier.name
+            assert result.rate_limit == tier.rate_limit
 
 
 class TestPatreonSession:
@@ -286,8 +235,8 @@ class TestPatreonSession:
 
         assert data["user_id"] == "123456"
         assert data["email"] == "user@example.com"
-        assert data["tier"] == 1
-        assert data["tier_name"] == TIER_NAMES[1]
+        assert data["tier_id"] == TEST_TIER.tier_id
+        assert data["tier_name"] == TEST_TIER.name
         assert data["access_token"] == "test-access-token"
         assert data["refresh_token"] == "test-refresh-token"
         assert "access_token_expires_at" in data
@@ -301,7 +250,7 @@ class TestPatreonSession:
 
         assert restored.user_id == session.user_id
         assert restored.email == session.email
-        assert restored.tier == session.tier
+        assert restored.tier_id == session.tier_id
         assert restored.tier_name == session.tier_name
         assert restored.rate_limit == session.rate_limit
         assert restored.access_token == session.access_token
@@ -315,7 +264,7 @@ class TestPatreonSession:
         restored = PatreonSession.from_dict(data)
 
         assert restored.user_id == session.user_id
-        assert restored.tier == session.tier
+        assert restored.tier_id == session.tier_id
 
 
 class TestSessionManagement:
@@ -353,7 +302,7 @@ class TestSessionManagement:
 
             assert result is not None
             assert result.user_id == session.user_id
-            assert result.tier == session.tier
+            assert result.tier_id == session.tier_id
             mock_get.assert_called_once_with("patreon:session:test-token")
 
     @pytest.mark.asyncio
@@ -576,6 +525,7 @@ class TestFetchUserIdentity:
     @pytest.mark.asyncio
     async def test_fetch_user_identity_success_with_active_patron(self) -> None:
         """Test fetching user identity with active patron membership."""
+        tier = PATREON_TIERS[0]  # VIP Hexe
         mock_response = httpx.Response(
             200,
             json={
@@ -584,10 +534,14 @@ class TestFetchUserIdentity:
                     {
                         "type": "member",
                         "attributes": {
-                            "currently_entitled_amount_cents": 1000,
                             "patron_status": "active_patron",
                         },
-                        "relationships": {"campaign": {"data": {"id": "test-campaign-id"}}},
+                        "relationships": {
+                            "campaign": {"data": {"id": "test-campaign-id"}},
+                            "currently_entitled_tiers": {
+                                "data": [{"type": "tier", "id": tier.tier_id}]
+                            },
+                        },
                     }
                 ],
             },
@@ -607,7 +561,7 @@ class TestFetchUserIdentity:
             assert result.user_id == "12345"
             assert result.email == "patron@example.com"
             assert result.membership_data is not None
-            assert result.membership_data["currently_entitled_amount_cents"] == 1000
+            assert result.membership_data["entitled_tier_ids"] == [tier.tier_id]
 
     @pytest.mark.asyncio
     async def test_fetch_user_identity_with_inactive_patron(self) -> None:
@@ -620,10 +574,12 @@ class TestFetchUserIdentity:
                     {
                         "type": "member",
                         "attributes": {
-                            "currently_entitled_amount_cents": 0,
                             "patron_status": "former_patron",
                         },
-                        "relationships": {"campaign": {"data": {"id": "test-campaign-id"}}},
+                        "relationships": {
+                            "campaign": {"data": {"id": "test-campaign-id"}},
+                            "currently_entitled_tiers": {"data": []},
+                        },
                     }
                 ],
             },
@@ -811,28 +767,28 @@ class TestPatronStatusRefresh:
     @pytest.mark.asyncio
     async def test_refresh_patron_status_updates_tier(self) -> None:
         """Test refresh_patron_status updates tier when membership changes."""
-        session = _make_test_session(tier=1)  # Start at tier 1
+        low_tier = PATREON_TIERS[0]  # VIP Hexe - 30 req
+        high_tier = PATREON_TIERS[3]  # Deadlock API €20 - 200 req
+        session = _make_test_session(tier_id=low_tier.tier_id)  # Start at low tier
 
-        # Mock returning tier 2 membership data
+        # Mock returning higher tier membership data
         mock_user_data = PatreonUserData(
             user_id="123456",
             email="user@example.com",
-            membership_data={"currently_entitled_amount_cents": 1500},  # Tier 2 amount
+            membership_data={"entitled_tier_ids": [high_tier.tier_id]},
         )
 
         with (
             mock.patch("packages.api.patreon.fetch_user_identity", new_callable=AsyncMock) as mock_fetch,
             mock.patch("packages.api.patreon.update_patreon_session", new_callable=AsyncMock) as mock_update,
-            mock.patch("packages.api.patreon.get_patreon_config") as mock_config,
         ):
-            mock_config.return_value = _make_test_config()
             mock_fetch.return_value = mock_user_data
             mock_update.return_value = True
 
             result = await refresh_patron_status("test-token", session)
 
-            assert result.tier == 2  # Upgraded to tier 2
-            assert result.tier_name == TIER_NAMES[2]
+            assert result.tier_id == high_tier.tier_id
+            assert result.tier_name == high_tier.name
             mock_update.assert_called_once()
 
     @pytest.mark.asyncio
@@ -851,8 +807,9 @@ class TestPatronStatusRefresh:
     async def test_check_and_refresh_patron_status_returns_cached_on_failure(self) -> None:
         """Test check_and_refresh_patron_status returns cached tier on failure."""
         now = datetime.now(UTC)
+        high_tier = PATREON_TIERS[3]
         session = _make_test_session(
-            tier=2,
+            tier_id=high_tier.tier_id,
             last_verified_at=now - timedelta(hours=2),
         )
 
@@ -863,4 +820,4 @@ class TestPatronStatusRefresh:
 
             # Original session returned (cached tier used)
             assert result is session
-            assert result.tier == 2
+            assert result.tier_id == high_tier.tier_id

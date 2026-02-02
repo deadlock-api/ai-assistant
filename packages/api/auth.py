@@ -201,7 +201,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             # Attach patron tier info to request state
             request.state.patron_user_id = session.user_id
-            request.state.patron_tier = session.tier
+            request.state.patron_tier_id = session.tier_id
             request.state.patron_tier_name = session.tier_name
             request.state.patron_rate_limit = session.rate_limit
 

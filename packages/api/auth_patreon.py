@@ -33,7 +33,7 @@ class CallbackResponse(BaseModel):
     """Response from OAuth2 callback endpoint."""
 
     session_token: str
-    tier: int
+    tier_id: str | None
     tier_name: str
     rate_limit: int
 
@@ -48,7 +48,7 @@ class StatusResponse(BaseModel):
     """Response from patron status endpoint."""
 
     authenticated: bool
-    tier: int
+    tier_id: str | None
     tier_name: str
     rate_limit: int
     email: str  # Masked email (e.g., u***@example.com)
@@ -147,7 +147,7 @@ async def patreon_auth_callback(
     session = PatreonSession(
         user_id=user_data.user_id,
         email=user_data.email,
-        tier=tier_result.tier,
+        tier_id=tier_result.tier_id,
         tier_name=tier_result.tier_name,
         rate_limit=tier_result.rate_limit,
         access_token=tokens.access_token,
@@ -159,7 +159,7 @@ async def patreon_auth_callback(
 
     return CallbackResponse(
         session_token=session_token,
-        tier=tier_result.tier,
+        tier_id=tier_result.tier_id,
         tier_name=tier_result.tier_name,
         rate_limit=tier_result.rate_limit,
     )
@@ -263,7 +263,7 @@ async def patreon_status(
 
     return StatusResponse(
         authenticated=True,
-        tier=session.tier,
+        tier_id=session.tier_id,
         tier_name=session.tier_name,
         rate_limit=session.rate_limit,
         email=_mask_email(session.email),

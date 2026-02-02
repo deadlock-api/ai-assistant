@@ -14,18 +14,13 @@ from fastapi.testclient import TestClient
 from packages.api.auth_patreon import _mask_email, router
 from packages.api.errors import RequestIDMiddleware
 from packages.api.patreon import (
-    DEFAULT_TIER_0_LIMIT,
-    DEFAULT_TIER_1_CENTS,
-    DEFAULT_TIER_1_LIMIT,
-    DEFAULT_TIER_2_CENTS,
-    DEFAULT_TIER_2_LIMIT,
-    DEFAULT_TIER_3_CENTS,
-    DEFAULT_TIER_3_LIMIT,
-    TIER_NAMES,
+    DEFAULT_NON_PATRON_RATE_LIMIT,
+    DEFAULT_NON_PATRON_TIER_NAME,
+    PATREON_TIERS,
+    TIER_BY_ID,
     PatreonAPIError,
     PatreonConfig,
     PatreonSession,
-    PatreonTierConfig,
     PatreonTokenResponse,
     PatreonUserData,
 )
@@ -56,22 +51,32 @@ def _make_test_config() -> PatreonConfig:
         client_secret="test-client-secret",
         redirect_uri="https://api.example.com/auth/patreon/callback",
         campaign_id="test-campaign-id",
-        tier_1=PatreonTierConfig(threshold_cents=DEFAULT_TIER_1_CENTS, rate_limit=DEFAULT_TIER_1_LIMIT),
-        tier_2=PatreonTierConfig(threshold_cents=DEFAULT_TIER_2_CENTS, rate_limit=DEFAULT_TIER_2_LIMIT),
-        tier_3=PatreonTierConfig(threshold_cents=DEFAULT_TIER_3_CENTS, rate_limit=DEFAULT_TIER_3_LIMIT),
-        default_rate_limit=DEFAULT_TIER_0_LIMIT,
     )
 
 
-def _make_test_session(tier: int = 1) -> PatreonSession:
+# Test tier for convenience (VIP Hexe - €3/month)
+TEST_TIER = PATREON_TIERS[0]
+
+
+def _make_test_session(tier_id: str | None = None) -> PatreonSession:
     """Create a test Patreon session."""
     now = datetime.now(UTC)
+
+    # Default to test tier if not specified
+    if tier_id is None:
+        tier_id = TEST_TIER.tier_id
+
+    # Look up tier info
+    tier = TIER_BY_ID.get(tier_id) if tier_id else None
+    tier_name = tier.name if tier else DEFAULT_NON_PATRON_TIER_NAME
+    rate_limit = tier.rate_limit if tier else DEFAULT_NON_PATRON_RATE_LIMIT
+
     return PatreonSession(
         user_id="123456",
         email="user@example.com",
-        tier=tier,
-        tier_name=TIER_NAMES[tier],
-        rate_limit=[DEFAULT_TIER_0_LIMIT, DEFAULT_TIER_1_LIMIT, DEFAULT_TIER_2_LIMIT, DEFAULT_TIER_3_LIMIT][tier],
+        tier_id=tier_id,
+        tier_name=tier_name,
+        rate_limit=rate_limit,
         access_token="test-access-token",
         refresh_token="test-refresh-token",
         access_token_expires_at=now + timedelta(hours=1),
@@ -222,6 +227,7 @@ class TestPatreonAuthCallback:
     def test_successful_callback_returns_session_token(self) -> None:
         """Test that successful callback returns session token and tier info."""
         now = datetime.now(UTC)
+        tier = PATREON_TIERS[3]  # Deadlock API €20
         mock_tokens = PatreonTokenResponse(
             access_token="access-token",
             refresh_token="refresh-token",
@@ -232,7 +238,7 @@ class TestPatreonAuthCallback:
         mock_user = PatreonUserData(
             user_id="12345",
             email="patron@example.com",
-            membership_data={"currently_entitled_amount_cents": 1000},
+            membership_data={"entitled_tier_ids": [tier.tier_id]},
         )
 
         with (
@@ -246,7 +252,9 @@ class TestPatreonAuthCallback:
             mock_validate.return_value = True
             mock_exchange.return_value = mock_tokens
             mock_fetch.return_value = mock_user
-            mock_tier.return_value = mock.MagicMock(tier=2, tier_name="Contributor", rate_limit=500)
+            mock_tier.return_value = mock.MagicMock(
+                tier_id=tier.tier_id, tier_name=tier.name, rate_limit=tier.rate_limit
+            )
             mock_session.return_value = "session-token-uuid"
 
             app = create_test_app()
@@ -256,9 +264,9 @@ class TestPatreonAuthCallback:
             assert response.status_code == 200
             data = response.json()
             assert data["session_token"] == "session-token-uuid"
-            assert data["tier"] == 2
-            assert data["tier_name"] == "Contributor"
-            assert data["rate_limit"] == 500
+            assert data["tier_id"] == tier.tier_id
+            assert data["tier_name"] == tier.name
+            assert data["rate_limit"] == tier.rate_limit
 
 
 class TestPatreonLogout:
@@ -340,7 +348,8 @@ class TestPatreonStatus:
 
     def test_returns_status_with_masked_email(self) -> None:
         """Test that status endpoint returns patron info with masked email."""
-        session = _make_test_session(tier=2)
+        tier = PATREON_TIERS[3]  # Deadlock API €20
+        session = _make_test_session(tier_id=tier.tier_id)
 
         with mock.patch("packages.api.auth_patreon.get_patreon_session", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = session
@@ -355,9 +364,9 @@ class TestPatreonStatus:
             assert response.status_code == 200
             data = response.json()
             assert data["authenticated"] is True
-            assert data["tier"] == 2
-            assert data["tier_name"] == TIER_NAMES[2]
-            assert data["rate_limit"] == DEFAULT_TIER_2_LIMIT
+            assert data["tier_id"] == tier.tier_id
+            assert data["tier_name"] == tier.name
+            assert data["rate_limit"] == tier.rate_limit
             assert "***" in data["email"]  # Email is masked
             assert "expires_at" in data
 

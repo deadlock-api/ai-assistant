@@ -47,7 +47,7 @@ class PatreonSession:
 
     user_id: str
     email: str
-    tier: int
+    tier_id: str | None  # Patreon tier ID (None for non-patrons)
     tier_name: str
     rate_limit: int
     access_token: str
@@ -60,7 +60,7 @@ class PatreonSession:
         return {
             "user_id": self.user_id,
             "email": self.email,
-            "tier": self.tier,
+            "tier_id": self.tier_id,
             "tier_name": self.tier_name,
             "rate_limit": self.rate_limit,
             "access_token": self.access_token,
@@ -75,7 +75,7 @@ class PatreonSession:
         return cls(
             user_id=data["user_id"],
             email=data["email"],
-            tier=data["tier"],
+            tier_id=data.get("tier_id"),  # Use .get() for backwards compatibility
             tier_name=data["tier_name"],
             rate_limit=data["rate_limit"],
             access_token=data["access_token"],
@@ -89,7 +89,8 @@ class PatreonSession:
 class PatreonTierConfig:
     """Configuration for a single patron tier."""
 
-    threshold_cents: int  # Minimum pledge amount in cents
+    tier_id: str  # Patreon membership/tier ID
+    name: str  # Human-readable tier name
     rate_limit: int  # Requests per minute for this tier
 
 
@@ -97,7 +98,7 @@ class PatreonTierConfig:
 class PatronTierResult:
     """Result of determining a patron's tier from membership data."""
 
-    tier: int  # Tier level (0-3)
+    tier_id: str | None  # Patreon tier ID (None for non-patrons)
     tier_name: str  # Human-readable tier name
     rate_limit: int  # Requests per minute for this tier
 
@@ -130,30 +131,27 @@ class PatreonConfig:
     client_secret: str
     redirect_uri: str
     campaign_id: str
-    tier_1: PatreonTierConfig
-    tier_2: PatreonTierConfig
-    tier_3: PatreonTierConfig
-    default_rate_limit: int  # Rate limit for non-patrons (tier 0)
 
 
-# Default tier thresholds in cents
-DEFAULT_TIER_1_CENTS = 500  # $5.00
-DEFAULT_TIER_2_CENTS = 1000  # $10.00
-DEFAULT_TIER_3_CENTS = 2000  # $20.00
+# Hardcoded tier configuration based on Patreon membership IDs
+# Rate limits follow ~10 requests per euro per month
+# Ordered from lowest to highest tier
+PATREON_TIERS: list[PatreonTierConfig] = [
+    PatreonTierConfig(tier_id="23783537", name="VIP Hexe", rate_limit=30),  # €3/month
+    PatreonTierConfig(tier_id="24044667", name="Super VIP", rate_limit=70),  # €7/month
+    PatreonTierConfig(tier_id="23883135", name="Supporter Hexe", rate_limit=150),  # €15/month
+    PatreonTierConfig(tier_id="26319827", name="Deadlock API Support", rate_limit=200),  # €20/month
+    PatreonTierConfig(tier_id="24258871", name="Deadlock API Support", rate_limit=500),  # €50/month
+    PatreonTierConfig(tier_id="24339295", name="Deadlock API Support", rate_limit=1000),  # €100/month
+    PatreonTierConfig(tier_id="26672299", name="Deadlock API Support", rate_limit=2000),  # €200/month
+]
 
-# Default tier rate limits (requests per minute)
-DEFAULT_TIER_0_LIMIT = 100  # Non-patron
-DEFAULT_TIER_1_LIMIT = 200
-DEFAULT_TIER_2_LIMIT = 500
-DEFAULT_TIER_3_LIMIT = 1000
+# Build lookup dict for O(1) tier lookup by ID
+TIER_BY_ID: dict[str, PatreonTierConfig] = {tier.tier_id: tier for tier in PATREON_TIERS}
 
-# Tier names for display
-TIER_NAMES = {
-    0: "Non-Patron",
-    1: "Supporter",
-    2: "Contributor",
-    3: "Champion",
-}
+# Default rate limit for non-patrons
+DEFAULT_NON_PATRON_RATE_LIMIT = 100
+DEFAULT_NON_PATRON_TIER_NAME = "Non-Patron"
 
 # Cached configuration (loaded once at startup)
 _cached_config: PatreonConfig | None = None
@@ -192,14 +190,6 @@ def _load_patreon_config() -> PatreonConfig:
         PATREON_REDIRECT_URI: OAuth2 callback URL (e.g., https://api.example.com/auth/patreon/callback)
         PATREON_CAMPAIGN_ID: Your Patreon campaign ID
 
-    Optional environment variables:
-        PATREON_TIER_1_CENTS: Minimum pledge for tier 1 in cents (default: 500)
-        PATREON_TIER_2_CENTS: Minimum pledge for tier 2 in cents (default: 1000)
-        PATREON_TIER_3_CENTS: Minimum pledge for tier 3 in cents (default: 2000)
-        PATREON_TIER_1_LIMIT: Rate limit for tier 1 patrons (default: 200)
-        PATREON_TIER_2_LIMIT: Rate limit for tier 2 patrons (default: 500)
-        PATREON_TIER_3_LIMIT: Rate limit for tier 3 patrons (default: 1000)
-
     Returns:
         Validated PatreonConfig instance.
 
@@ -226,43 +216,11 @@ def _load_patreon_config() -> PatreonConfig:
     if missing:
         raise PatreonConfigError(f"Missing required Patreon configuration: {', '.join(missing)}")
 
-    # Load tier thresholds (in cents)
-    tier_1_cents = _parse_positive_int(
-        os.environ.get("PATREON_TIER_1_CENTS", str(DEFAULT_TIER_1_CENTS)),
-        "PATREON_TIER_1_CENTS",
-    )
-    tier_2_cents = _parse_positive_int(
-        os.environ.get("PATREON_TIER_2_CENTS", str(DEFAULT_TIER_2_CENTS)),
-        "PATREON_TIER_2_CENTS",
-    )
-    tier_3_cents = _parse_positive_int(
-        os.environ.get("PATREON_TIER_3_CENTS", str(DEFAULT_TIER_3_CENTS)),
-        "PATREON_TIER_3_CENTS",
-    )
-
-    # Load tier rate limits
-    tier_1_limit = _parse_positive_int(
-        os.environ.get("PATREON_TIER_1_LIMIT", str(DEFAULT_TIER_1_LIMIT)),
-        "PATREON_TIER_1_LIMIT",
-    )
-    tier_2_limit = _parse_positive_int(
-        os.environ.get("PATREON_TIER_2_LIMIT", str(DEFAULT_TIER_2_LIMIT)),
-        "PATREON_TIER_2_LIMIT",
-    )
-    tier_3_limit = _parse_positive_int(
-        os.environ.get("PATREON_TIER_3_LIMIT", str(DEFAULT_TIER_3_LIMIT)),
-        "PATREON_TIER_3_LIMIT",
-    )
-
     return PatreonConfig(
         client_id=client_id,
         client_secret=client_secret,
         redirect_uri=redirect_uri,
         campaign_id=campaign_id,
-        tier_1=PatreonTierConfig(threshold_cents=tier_1_cents, rate_limit=tier_1_limit),
-        tier_2=PatreonTierConfig(threshold_cents=tier_2_cents, rate_limit=tier_2_limit),
-        tier_3=PatreonTierConfig(threshold_cents=tier_3_cents, rate_limit=tier_3_limit),
-        default_rate_limit=DEFAULT_TIER_0_LIMIT,
     )
 
 
@@ -315,72 +273,59 @@ def reload_patreon_config() -> PatreonConfig:
 
 def determine_patron_tier(
     membership_data: dict | None,
-    config: PatreonConfig | None = None,
 ) -> PatronTierResult:
     """Determine a patron's tier level from Patreon membership data.
 
-    Maps the patron's pledge amount to a tier level (0-3) and corresponding
-    rate limit. Tier thresholds and limits are configurable via environment
-    variables.
-
-    Tier levels:
-        - Tier 0: Non-patron or inactive membership (default: 100 req/min)
-        - Tier 1: >= threshold_1 cents/month (default: $5, 200 req/min)
-        - Tier 2: >= threshold_2 cents/month (default: $10, 500 req/min)
-        - Tier 3: >= threshold_3 cents/month (default: $20, 1000 req/min)
+    Looks up the patron's tier by their entitled tier IDs and returns
+    the corresponding rate limit. Tier configuration is hardcoded based
+    on Patreon membership IDs.
 
     Args:
-        membership_data: Patreon membership data dict containing pledge info.
-            Expected structure: {"currently_entitled_amount_cents": int, ...}
+        membership_data: Patreon membership data dict containing tier info.
+            Expected structure: {"entitled_tier_ids": ["tier_id", ...], ...}
             Can be None for non-patrons or missing data.
-        config: Optional PatreonConfig instance. If not provided, uses the
-            cached configuration from get_patreon_config().
 
     Returns:
-        PatronTierResult with tier (0-3), tier_name, and rate_limit.
+        PatronTierResult with tier_id, tier_name, and rate_limit.
     """
-    if config is None:
-        config = get_patreon_config()
-
-    # Non-patron: no membership data or missing pledge amount
+    # Non-patron: no membership data
     if membership_data is None:
         return PatronTierResult(
-            tier=0,
-            tier_name=TIER_NAMES[0],
-            rate_limit=config.default_rate_limit,
+            tier_id=None,
+            tier_name=DEFAULT_NON_PATRON_TIER_NAME,
+            rate_limit=DEFAULT_NON_PATRON_RATE_LIMIT,
         )
 
-    # Extract pledge amount in cents (default to 0 if not present)
-    pledge_cents = membership_data.get("currently_entitled_amount_cents", 0)
-    if pledge_cents is None:
-        pledge_cents = 0
+    # Get entitled tier IDs from membership data
+    entitled_tier_ids = membership_data.get("entitled_tier_ids", [])
+    if not entitled_tier_ids:
+        return PatronTierResult(
+            tier_id=None,
+            tier_name=DEFAULT_NON_PATRON_TIER_NAME,
+            rate_limit=DEFAULT_NON_PATRON_RATE_LIMIT,
+        )
 
-    # Determine tier based on pledge amount (check highest tier first)
-    if pledge_cents >= config.tier_3.threshold_cents:
+    # Find the highest tier the patron is entitled to
+    # (in case they have multiple, pick the one with the highest rate limit)
+    best_tier: PatreonTierConfig | None = None
+    for tier_id in entitled_tier_ids:
+        tier = TIER_BY_ID.get(tier_id)
+        if tier is not None and (best_tier is None or tier.rate_limit > best_tier.rate_limit):
+            best_tier = tier
+
+    if best_tier is None:
+        # Patron has a tier but it's not one we recognize
         return PatronTierResult(
-            tier=3,
-            tier_name=TIER_NAMES[3],
-            rate_limit=config.tier_3.rate_limit,
+            tier_id=None,
+            tier_name=DEFAULT_NON_PATRON_TIER_NAME,
+            rate_limit=DEFAULT_NON_PATRON_RATE_LIMIT,
         )
-    elif pledge_cents >= config.tier_2.threshold_cents:
-        return PatronTierResult(
-            tier=2,
-            tier_name=TIER_NAMES[2],
-            rate_limit=config.tier_2.rate_limit,
-        )
-    elif pledge_cents >= config.tier_1.threshold_cents:
-        return PatronTierResult(
-            tier=1,
-            tier_name=TIER_NAMES[1],
-            rate_limit=config.tier_1.rate_limit,
-        )
-    else:
-        # Pledge below tier 1 threshold or inactive
-        return PatronTierResult(
-            tier=0,
-            tier_name=TIER_NAMES[0],
-            rate_limit=config.default_rate_limit,
-        )
+
+    return PatronTierResult(
+        tier_id=best_tier.tier_id,
+        tier_name=best_tier.name,
+        rate_limit=best_tier.rate_limit,
+    )
 
 
 # =============================================================================
@@ -753,12 +698,12 @@ async def fetch_user_identity(
         config = get_patreon_config()
         campaign_id = config.campaign_id
 
-    # Request user identity with membership data
-    # Fields: identity (id, email), memberships (pledge amount)
+    # Request user identity with membership data including entitled tiers
     params = {
-        "include": "memberships,memberships.campaign",
+        "include": "memberships,memberships.campaign,memberships.currently_entitled_tiers",
         "fields[user]": "email",
-        "fields[member]": "currently_entitled_amount_cents,patron_status",
+        "fields[member]": "patron_status",
+        "fields[tier]": "title",
         "fields[campaign]": "vanity",
     }
 
@@ -805,8 +750,11 @@ async def fetch_user_identity(
             attributes = item.get("attributes", {})
             # Only include active patrons
             if attributes.get("patron_status") == "active_patron":
+                # Extract entitled tier IDs from the relationship
+                entitled_tiers_rel = relationships.get("currently_entitled_tiers", {}).get("data", [])
+                entitled_tier_ids = [tier["id"] for tier in entitled_tiers_rel if tier.get("type") == "tier"]
                 membership_data = {
-                    "currently_entitled_amount_cents": attributes.get("currently_entitled_amount_cents", 0),
+                    "entitled_tier_ids": entitled_tier_ids,
                     "patron_status": attributes.get("patron_status"),
                 }
             break
@@ -954,7 +902,7 @@ async def refresh_patron_status(
     updated_session = PatreonSession(
         user_id=session.user_id,
         email=session.email,
-        tier=tier_result.tier,
+        tier_id=tier_result.tier_id,
         tier_name=tier_result.tier_name,
         rate_limit=tier_result.rate_limit,
         access_token=session.access_token,
@@ -1058,7 +1006,7 @@ async def check_and_refresh_token(
         updated_session = PatreonSession(
             user_id=session.user_id,
             email=session.email,
-            tier=session.tier,
+            tier_id=session.tier_id,
             tier_name=session.tier_name,
             rate_limit=session.rate_limit,
             access_token=new_tokens.access_token,

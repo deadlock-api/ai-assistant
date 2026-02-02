@@ -290,14 +290,15 @@ def test_valid_patreon_token_allows_request() -> None:
     """Test that a valid Patreon session token allows the request to proceed."""
     from datetime import UTC, datetime, timedelta
 
-    from packages.api.patreon import PatreonSession
+    from packages.api.patreon import PATREON_TIERS, PatreonSession
 
+    tier = PATREON_TIERS[3]  # Deadlock API €20
     session = PatreonSession(
         user_id="123456",
         email="patron@example.com",
-        tier=2,
-        tier_name="Contributor",
-        rate_limit=500,
+        tier_id=tier.tier_id,
+        tier_name=tier.name,
+        rate_limit=tier.rate_limit,
         access_token="access-token",
         refresh_token="refresh-token",
         access_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
@@ -342,14 +343,15 @@ def test_patreon_token_refresh_failure_returns_401_with_code() -> None:
     """Test that Patreon token refresh failure returns 401 with TOKEN_REFRESH_FAILED code."""
     from datetime import UTC, datetime, timedelta
 
-    from packages.api.patreon import PatreonAPIError, PatreonSession
+    from packages.api.patreon import PATREON_TIERS, PatreonAPIError, PatreonSession
 
+    tier = PATREON_TIERS[3]  # Deadlock API €20
     session = PatreonSession(
         user_id="123456",
         email="patron@example.com",
-        tier=2,
-        tier_name="Contributor",
-        rate_limit=500,
+        tier_id=tier.tier_id,
+        tier_name=tier.name,
+        rate_limit=tier.rate_limit,
         access_token="access-token",
         refresh_token="refresh-token",
         access_token_expires_at=datetime.now(UTC) + timedelta(minutes=1),  # Expiring soon
@@ -415,14 +417,15 @@ def test_patreon_token_takes_precedence_over_turnstile() -> None:
     """Test that Patreon token is checked before Turnstile when both are provided."""
     from datetime import UTC, datetime, timedelta
 
-    from packages.api.patreon import PatreonSession
+    from packages.api.patreon import PATREON_TIERS, PatreonSession
 
+    tier = PATREON_TIERS[0]  # VIP Hexe
     session = PatreonSession(
         user_id="123456",
         email="patron@example.com",
-        tier=1,
-        tier_name="Supporter",
-        rate_limit=200,
+        tier_id=tier.tier_id,
+        tier_name=tier.name,
+        rate_limit=tier.rate_limit,
         access_token="access-token",
         refresh_token="refresh-token",
         access_token_expires_at=datetime.now(UTC) + timedelta(hours=1),
