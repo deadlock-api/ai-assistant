@@ -57,6 +57,7 @@ jobs:
 
   docker:
     name: Docker Build & Push
+    needs: [lint, format, type-check, test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
