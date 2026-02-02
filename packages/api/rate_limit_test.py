@@ -1,6 +1,7 @@
 # Deadlock AI Assistant - Rate limiting tests
 
 import os
+from collections.abc import Generator
 from typing import Any, cast
 from unittest import mock
 from unittest.mock import AsyncMock, MagicMock
@@ -21,8 +22,17 @@ from packages.api.rate_limit import (
     _get_client_ip,
     _hash_api_key,
     check_rate_limits,
-    get_rate_limit_config,
+    reload_rate_limit_config,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit_config() -> Generator[None]:
+    """Reset rate limit config cache before each test."""
+    # Reset to defaults before and after each test
+    reload_rate_limit_config()
+    yield
+    reload_rate_limit_config()
 
 
 def create_test_app() -> FastAPI:
@@ -56,15 +66,19 @@ class TestGetRateLimitConfig:
             "RATE_LIMIT_PER_IP",
             "RATE_LIMIT_PER_API_KEY",
             "RATE_LIMIT_WINDOW_SECONDS",
+            "RATE_LIMIT_TRUST_PROXY",
+            "RATE_LIMIT_PROXY_COUNT",
         ]:
             env.pop(key, None)
         with mock.patch.dict(os.environ, env, clear=True):
-            config = get_rate_limit_config()
+            config = reload_rate_limit_config()
             assert config.enabled is True
             assert config.global_limit == DEFAULT_GLOBAL_LIMIT
             assert config.ip_limit == DEFAULT_IP_LIMIT
             assert config.api_key_limit == DEFAULT_API_KEY_LIMIT
             assert config.window_seconds == DEFAULT_WINDOW_SECONDS
+            assert config.trust_proxy is False
+            assert config.proxy_count == 1
 
     def test_respects_env_vars(self) -> None:
         """Test that environment variables override defaults."""
@@ -76,19 +90,23 @@ class TestGetRateLimitConfig:
                 "RATE_LIMIT_PER_IP": "200",
                 "RATE_LIMIT_PER_API_KEY": "1000",
                 "RATE_LIMIT_WINDOW_SECONDS": "120",
+                "RATE_LIMIT_TRUST_PROXY": "true",
+                "RATE_LIMIT_PROXY_COUNT": "2",
             },
         ):
-            config = get_rate_limit_config()
+            config = reload_rate_limit_config()
             assert config.enabled is True
             assert config.global_limit == 2000
             assert config.ip_limit == 200
             assert config.api_key_limit == 1000
             assert config.window_seconds == 120
+            assert config.trust_proxy is True
+            assert config.proxy_count == 2
 
     def test_disabled_when_env_false(self) -> None:
         """Test that rate limiting can be disabled."""
         with mock.patch.dict(os.environ, {"RATE_LIMIT_ENABLED": "false"}):
-            config = get_rate_limit_config()
+            config = reload_rate_limit_config()
             assert config.enabled is False
 
 
@@ -116,23 +134,70 @@ class TestHashApiKey:
 class TestGetClientIP:
     """Tests for _get_client_ip function."""
 
-    def test_extracts_ip_from_x_forwarded_for(self) -> None:
-        """Test that X-Forwarded-For header is used when present."""
+    def _make_config(self, trust_proxy: bool = False, proxy_count: int = 1) -> RateLimitConfig:
+        """Create a config for testing."""
+        return RateLimitConfig(
+            global_limit=1000,
+            ip_limit=100,
+            api_key_limit=500,
+            window_seconds=60,
+            enabled=True,
+            trust_proxy=trust_proxy,
+            proxy_count=proxy_count,
+        )
+
+    def test_prefers_cf_connecting_ip_over_x_forwarded_for(self) -> None:
+        """Test that CF-Connecting-IP is preferred when present (Cloudflare)."""
+        mock_request = MagicMock()
+        mock_request.headers = {
+            "CF-Connecting-IP": "203.0.113.100",
+            "X-Forwarded-For": "spoofed_ip, 203.0.113.200",
+        }
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        config = self._make_config(trust_proxy=True, proxy_count=1)
+        result = _get_client_ip(mock_request, config)
+        assert result == "203.0.113.100"
+
+    def test_extracts_ip_from_x_forwarded_for_when_trusted(self) -> None:
+        """Test that X-Forwarded-For header is used when CF-Connecting-IP is absent."""
         mock_request = MagicMock()
         mock_request.headers = {"X-Forwarded-For": "203.0.113.195"}
         mock_request.client = MagicMock(host="10.0.0.1")
 
-        result = _get_client_ip(mock_request)
+        config = self._make_config(trust_proxy=True, proxy_count=1)
+        result = _get_client_ip(mock_request, config)
         assert result == "203.0.113.195"
 
-    def test_extracts_first_ip_from_x_forwarded_for_chain(self) -> None:
-        """Test that the first IP in X-Forwarded-For chain is used."""
+    def test_extracts_rightmost_ip_with_single_proxy(self) -> None:
+        """Test that the rightmost IP is used with proxy_count=1."""
         mock_request = MagicMock()
-        mock_request.headers = {"X-Forwarded-For": "203.0.113.195, 70.41.3.18, 150.172.238.178"}
+        mock_request.headers = {"X-Forwarded-For": "fake_ip, real_client_ip"}
         mock_request.client = MagicMock(host="10.0.0.1")
 
-        result = _get_client_ip(mock_request)
-        assert result == "203.0.113.195"
+        config = self._make_config(trust_proxy=True, proxy_count=1)
+        result = _get_client_ip(mock_request, config)
+        assert result == "real_client_ip"
+
+    def test_extracts_correct_ip_with_multiple_proxies(self) -> None:
+        """Test that the correct IP is extracted with proxy_count=2."""
+        mock_request = MagicMock()
+        mock_request.headers = {"X-Forwarded-For": "fake_ip, real_client_ip, cdn_ip"}
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        config = self._make_config(trust_proxy=True, proxy_count=2)
+        result = _get_client_ip(mock_request, config)
+        assert result == "real_client_ip"
+
+    def test_ignores_x_forwarded_for_when_not_trusted(self) -> None:
+        """Test that X-Forwarded-For is ignored when trust_proxy is false."""
+        mock_request = MagicMock()
+        mock_request.headers = {"X-Forwarded-For": "spoofed_ip"}
+        mock_request.client = MagicMock(host="192.168.1.1")
+
+        config = self._make_config(trust_proxy=False)
+        result = _get_client_ip(mock_request, config)
+        assert result == "192.168.1.1"
 
     def test_falls_back_to_client_host(self) -> None:
         """Test fallback to request.client.host when no X-Forwarded-For."""
@@ -140,7 +205,8 @@ class TestGetClientIP:
         mock_request.headers = {}
         mock_request.client = MagicMock(host="192.168.1.1")
 
-        result = _get_client_ip(mock_request)
+        config = self._make_config(trust_proxy=True)
+        result = _get_client_ip(mock_request, config)
         assert result == "192.168.1.1"
 
     def test_returns_unknown_when_no_client(self) -> None:
@@ -149,12 +215,40 @@ class TestGetClientIP:
         mock_request.headers = {}
         mock_request.client = None
 
-        result = _get_client_ip(mock_request)
+        config = self._make_config(trust_proxy=False)
+        result = _get_client_ip(mock_request, config)
         assert result == "unknown"
+
+    def test_falls_back_to_first_ip_when_chain_shorter_than_proxy_count(self) -> None:
+        """Test fallback when X-Forwarded-For has fewer IPs than proxy_count."""
+        mock_request = MagicMock()
+        mock_request.headers = {"X-Forwarded-For": "single_ip"}
+        mock_request.client = MagicMock(host="10.0.0.1")
+
+        config = self._make_config(trust_proxy=True, proxy_count=3)
+        result = _get_client_ip(mock_request, config)
+        assert result == "single_ip"
 
 
 class TestCheckRateLimits:
     """Tests for check_rate_limits function."""
+
+    def _make_config(
+        self,
+        global_limit: int = 100,
+        ip_limit: int = 50,
+        api_key_limit: int = 75,
+    ) -> RateLimitConfig:
+        """Create a config for testing."""
+        return RateLimitConfig(
+            global_limit=global_limit,
+            ip_limit=ip_limit,
+            api_key_limit=api_key_limit,
+            window_seconds=60,
+            enabled=True,
+            trust_proxy=False,
+            proxy_count=1,
+        )
 
     @pytest.mark.asyncio
     async def test_allows_request_under_all_limits(self) -> None:
@@ -163,13 +257,7 @@ class TestCheckRateLimits:
         mock_request.headers = {"X-API-Key": "test-key"}
         mock_request.client = MagicMock(host="192.168.1.1")
 
-        config = RateLimitConfig(
-            global_limit=100,
-            ip_limit=50,
-            api_key_limit=75,
-            window_seconds=60,
-            enabled=True,
-        )
+        config = self._make_config()
 
         with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
             # Return counts under all limits
@@ -191,13 +279,7 @@ class TestCheckRateLimits:
         mock_request.headers = {"X-API-Key": "test-key"}
         mock_request.client = MagicMock(host="192.168.1.1")
 
-        config = RateLimitConfig(
-            global_limit=100,
-            ip_limit=50,
-            api_key_limit=10,
-            window_seconds=60,
-            enabled=True,
-        )
+        config = self._make_config(api_key_limit=10)
 
         with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
             # API key count exceeds limit
@@ -218,13 +300,7 @@ class TestCheckRateLimits:
         mock_request.headers = {}  # No API key
         mock_request.client = MagicMock(host="192.168.1.1")
 
-        config = RateLimitConfig(
-            global_limit=100,
-            ip_limit=10,
-            api_key_limit=50,
-            window_seconds=60,
-            enabled=True,
-        )
+        config = self._make_config(ip_limit=10)
 
         with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
             # IP count exceeds limit
@@ -245,13 +321,7 @@ class TestCheckRateLimits:
         mock_request.headers = {}  # No API key
         mock_request.client = MagicMock(host="192.168.1.1")
 
-        config = RateLimitConfig(
-            global_limit=10,
-            ip_limit=100,
-            api_key_limit=100,
-            window_seconds=60,
-            enabled=True,
-        )
+        config = self._make_config(global_limit=10, ip_limit=100)
 
         with mock.patch("packages.api.rate_limit._check_rate_limit", new_callable=AsyncMock) as mock_check:
             mock_check.side_effect = [
@@ -348,16 +418,16 @@ class TestRateLimitMiddleware:
 
     def test_skips_when_disabled(self) -> None:
         """Test that rate limiting can be disabled via environment variable."""
-        with (
-            mock.patch.dict(os.environ, {"RATE_LIMIT_ENABLED": "false"}),
-            mock.patch("packages.api.rate_limit.check_rate_limits") as mock_check,
-        ):
-            app = create_test_app()
-            client = TestClient(app)
-            response = client.get("/protected")
+        with mock.patch.dict(os.environ, {"RATE_LIMIT_ENABLED": "false"}):
+            # Reload config to pick up the new environment variable
+            reload_rate_limit_config()
+            with mock.patch("packages.api.rate_limit.check_rate_limits") as mock_check:
+                app = create_test_app()
+                client = TestClient(app)
+                response = client.get("/protected")
 
-            assert response.status_code == 200
-            mock_check.assert_not_called()
+                assert response.status_code == 200
+                mock_check.assert_not_called()
 
 
 class TestRateLimitErrorResponse:

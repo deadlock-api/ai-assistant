@@ -3,7 +3,8 @@
 **Version:** 1.0.0
 **Base URL:** `https://your-deployment-url`
 
-This document provides comprehensive documentation for third-party developers integrating with the Deadlock AI Assistant API.
+This document provides comprehensive documentation for third-party developers integrating with the Deadlock AI Assistant
+API.
 
 ---
 
@@ -12,8 +13,8 @@ This document provides comprehensive documentation for third-party developers in
 1. [Overview](#overview)
 2. [Authentication](#authentication)
 3. [Endpoints](#endpoints)
-   - [Health Check](#health-check)
-   - [Chat](#chat)
+    - [Health Check](#health-check)
+    - [Chat](#chat)
 4. [Request/Response Models](#requestresponse-models)
 5. [Server-Sent Events (SSE)](#server-sent-events-sse)
 6. [Error Handling](#error-handling)
@@ -26,7 +27,8 @@ This document provides comprehensive documentation for third-party developers in
 
 ## Overview
 
-The Deadlock AI Assistant API provides a stateless REST interface for conversational AI interactions. Key features include:
+The Deadlock AI Assistant API provides a stateless REST interface for conversational AI interactions. Key features
+include:
 
 - **Streaming Responses**: Real-time response streaming via Server-Sent Events (SSE)
 - **Conversation Persistence**: Optional conversation history tracking via conversation IDs
@@ -41,12 +43,12 @@ All endpoints except public paths require authentication. The API supports two a
 
 ### Public Paths (No Authentication Required)
 
-| Path | Description |
-|------|-------------|
-| `/health` | Health check endpoint |
-| `/docs` | OpenAPI documentation (Swagger UI) |
-| `/openapi.json` | OpenAPI schema |
-| `/redoc` | ReDoc documentation |
+| Path            | Description                        |
+|-----------------|------------------------------------|
+| `/health`       | Health check endpoint              |
+| `/docs`         | OpenAPI documentation (Swagger UI) |
+| `/openapi.json` | OpenAPI schema                     |
+| `/redoc`        | ReDoc documentation                |
 
 ### Method 1: API Key Authentication (Recommended)
 
@@ -115,10 +117,10 @@ Check API availability and service status.
 
 #### Response Fields
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | `string` | Always `"healthy"` if the API is running |
-| `version` | `string` | API version number |
+| Field            | Type     | Description                                    |
+|------------------|----------|------------------------------------------------|
+| `status`         | `string` | Always `"healthy"` if the API is running       |
+| `version`        | `string` | API version number                             |
 | `services.redis` | `string` | Redis status: `"connected"` or `"unavailable"` |
 
 #### Notes
@@ -148,22 +150,23 @@ Send a message and receive a streaming AI response.
 
 #### Request Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `message` | `string` | Yes | The user's message to the assistant |
-| `conversation_id` | `string \| null` | No | Existing conversation ID to continue a conversation |
+| Field             | Type             | Required | Description                                         |
+|-------------------|------------------|----------|-----------------------------------------------------|
+| `message`         | `string`         | Yes      | The user's message to the assistant                 |
+| `conversation_id` | `string \| null` | No       | Existing conversation ID to continue a conversation |
 
 #### Response
 
-The response is a stream of Server-Sent Events. See [Server-Sent Events (SSE)](#server-sent-events-sse) for detailed event documentation.
+The response is a stream of Server-Sent Events. See [Server-Sent Events (SSE)](#server-sent-events-sse) for detailed
+event documentation.
 
 #### Behavior
 
-| Scenario | Behavior |
-|----------|----------|
-| No `conversation_id` provided | Creates a new conversation with a generated UUID |
-| Valid `conversation_id` provided | Loads conversation history and continues the conversation |
-| Invalid `conversation_id` provided | Starts a fresh conversation with the provided ID |
+| Scenario                           | Behavior                                                  |
+|------------------------------------|-----------------------------------------------------------|
+| No `conversation_id` provided      | Creates a new conversation with a generated UUID          |
+| Valid `conversation_id` provided   | Loads conversation history and continues the conversation |
+| Invalid `conversation_id` provided | Starts a fresh conversation with the provided ID          |
 
 ---
 
@@ -173,8 +176,8 @@ The response is a stream of Server-Sent Events. See [Server-Sent Events (SSE)](#
 
 ```typescript
 interface ChatRequest {
-  message: string;              // User message (required)
-  conversation_id?: string;     // Optional conversation ID
+    message: string;              // User message (required)
+    conversation_id?: string;     // Optional conversation ID
 }
 ```
 
@@ -184,9 +187,9 @@ All API errors return this consistent format:
 
 ```typescript
 interface ErrorResponse {
-  error: string;      // Human-readable error message
-  code: string;       // Machine-readable error code
-  request_id: string; // Unique request identifier for support
+    error: string;      // Human-readable error message
+    code: string;       // Machine-readable error code
+    request_id: string; // Unique request identifier for support
 }
 ```
 
@@ -194,11 +197,11 @@ interface ErrorResponse {
 
 ```typescript
 interface HealthResponse {
-  status: "healthy";
-  version: string;
-  services: {
-    redis: "connected" | "unavailable";
-  };
+    status: "healthy";
+    version: string;
+    services: {
+        redis: "connected" | "unavailable";
+    };
 }
 ```
 
@@ -225,10 +228,10 @@ Sent when the response stream begins.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"start"` | Event type identifier |
-| `conversation_id` | `string` | The conversation ID (new or existing) |
+| Field             | Type      | Description                           |
+|-------------------|-----------|---------------------------------------|
+| `event`           | `"start"` | Event type identifier                 |
+| `conversation_id` | `string`  | The conversation ID (new or existing) |
 
 #### ChatDeltaEvent
 
@@ -241,10 +244,10 @@ Sent for each content chunk during streaming. Multiple delta events are sent as 
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"delta"` | Event type identifier |
-| `content` | `string` | Partial response content |
+| Field     | Type      | Description              |
+|-----------|-----------|--------------------------|
+| `event`   | `"delta"` | Event type identifier    |
+| `content` | `string`  | Partial response content |
 
 #### ChatEndEvent
 
@@ -257,10 +260,10 @@ Sent when the response stream completes successfully.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"end"` | Event type identifier |
-| `conversation_id` | `string` | The conversation ID |
+| Field             | Type     | Description           |
+|-------------------|----------|-----------------------|
+| `event`           | `"end"`  | Event type identifier |
+| `conversation_id` | `string` | The conversation ID   |
 
 #### ChatErrorEvent
 
@@ -274,11 +277,11 @@ Sent when an error occurs during streaming.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"error"` | Event type identifier |
-| `error` | `string` | Human-readable error message |
-| `code` | `string` | Error code (see [Error Codes](#error-codes)) |
+| Field   | Type      | Description                                  |
+|---------|-----------|----------------------------------------------|
+| `event` | `"error"` | Event type identifier                        |
+| `error` | `string`  | Human-readable error message                 |
+| `code`  | `string`  | Error code (see [Error Codes](#error-codes)) |
 
 #### ChatToolStartEvent
 
@@ -294,11 +297,11 @@ Sent when the AI begins invoking a tool.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"tool_start"` | Event type identifier |
-| `tool_name` | `string` | Name of the tool being invoked |
-| `arguments` | `object` | Arguments passed to the tool |
+| Field       | Type           | Description                    |
+|-------------|----------------|--------------------------------|
+| `event`     | `"tool_start"` | Event type identifier          |
+| `tool_name` | `string`       | Name of the tool being invoked |
+| `arguments` | `object`       | Arguments passed to the tool   |
 
 #### ChatToolEndEvent
 
@@ -313,12 +316,12 @@ Sent when a tool invocation completes.
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `event` | `"tool_end"` | Event type identifier |
-| `tool_name` | `string` | Name of the tool that completed |
-| `success` | `boolean` | Whether the tool execution succeeded |
-| `result_summary` | `string` | Brief summary of the tool result |
+| Field            | Type         | Description                          |
+|------------------|--------------|--------------------------------------|
+| `event`          | `"tool_end"` | Event type identifier                |
+| `tool_name`      | `string`     | Name of the tool that completed      |
+| `success`        | `boolean`    | Whether the tool execution succeeded |
+| `result_summary` | `string`     | Brief summary of the tool result     |
 
 ### SSE Event Type Union
 
@@ -326,45 +329,45 @@ For TypeScript implementations:
 
 ```typescript
 type SSEEvent =
-  | ChatStartEvent
-  | ChatDeltaEvent
-  | ChatEndEvent
-  | ChatErrorEvent
-  | ChatToolStartEvent
-  | ChatToolEndEvent;
+    | ChatStartEvent
+    | ChatDeltaEvent
+    | ChatEndEvent
+    | ChatErrorEvent
+    | ChatToolStartEvent
+    | ChatToolEndEvent;
 
 interface ChatStartEvent {
-  event: "start";
-  conversation_id: string;
+    event: "start";
+    conversation_id: string;
 }
 
 interface ChatDeltaEvent {
-  event: "delta";
-  content: string;
+    event: "delta";
+    content: string;
 }
 
 interface ChatEndEvent {
-  event: "end";
-  conversation_id: string;
+    event: "end";
+    conversation_id: string;
 }
 
 interface ChatErrorEvent {
-  event: "error";
-  error: string;
-  code: string;
+    event: "error";
+    error: string;
+    code: string;
 }
 
 interface ChatToolStartEvent {
-  event: "tool_start";
-  tool_name: string;
-  arguments: Record<string, unknown>;
+    event: "tool_start";
+    tool_name: string;
+    arguments: Record<string, unknown>;
 }
 
 interface ChatToolEndEvent {
-  event: "tool_end";
-  tool_name: string;
-  success: boolean;
-  result_summary: string;
+    event: "tool_end";
+    tool_name: string;
+    success: boolean;
+    result_summary: string;
 }
 ```
 
@@ -374,14 +377,14 @@ interface ChatToolEndEvent {
 
 ### Error Codes
 
-| Code | Description | Typical HTTP Status |
-|------|-------------|---------------------|
-| `AUTH_FAILED` | Authentication failed (invalid/missing API key or Turnstile token) | 401 |
-| `VALIDATION_ERROR` | Request body validation failed | 400 |
-| `RATE_LIMIT_EXCEEDED` | Rate limit exceeded (global, per-IP, or per-API key) | 429 |
-| `AGENT_ERROR` | AI agent processing error | 500, 503 |
-| `REDIS_ERROR` | Storage service unavailable | 503 |
-| `INTERNAL_ERROR` | Unexpected server error | 500 |
+| Code                  | Description                                                        | Typical HTTP Status |
+|-----------------------|--------------------------------------------------------------------|---------------------|
+| `AUTH_FAILED`         | Authentication failed (invalid/missing API key or Turnstile token) | 401                 |
+| `VALIDATION_ERROR`    | Request body validation failed                                     | 400                 |
+| `RATE_LIMIT_EXCEEDED` | Rate limit exceeded (global, per-IP, or per-API key)               | 429                 |
+| `AGENT_ERROR`         | AI agent processing error                                          | 500, 503            |
+| `REDIS_ERROR`         | Storage service unavailable                                        | 503                 |
+| `INTERNAL_ERROR`      | Unexpected server error                                            | 500                 |
 
 ### Error Response Format
 
@@ -399,55 +402,57 @@ All errors (both HTTP responses and SSE error events) use this structure:
 
 The `AGENT_ERROR` code covers several underlying conditions:
 
-| Condition | HTTP Status | Description |
-|-----------|-------------|-------------|
-| Authentication Error | 500 | AI provider authentication failed |
-| Rate Limit Error | 503 | AI provider rate limit exceeded |
-| Timeout Error | 503 | AI provider request timed out |
-| Retry Exhausted Error | 503 | Maximum retry attempts reached |
-| Configuration Error | 500 | AI agent misconfiguration |
+| Condition             | HTTP Status | Description                       |
+|-----------------------|-------------|-----------------------------------|
+| Authentication Error  | 500         | AI provider authentication failed |
+| Rate Limit Error      | 503         | AI provider rate limit exceeded   |
+| Timeout Error         | 503         | AI provider request timed out     |
+| Retry Exhausted Error | 503         | Maximum retry attempts reached    |
+| Configuration Error   | 500         | AI agent misconfiguration         |
 
 ---
 
 ## Status Codes
 
-| Status Code | Meaning | When Used |
-|-------------|---------|-----------|
-| `200 OK` | Success | Successful chat/health requests |
-| `400 Bad Request` | Validation Error | Invalid request body or parameters |
-| `401 Unauthorized` | Authentication Failed | Missing or invalid API key/token |
-| `429 Too Many Requests` | Rate Limit Exceeded | Any rate limit tier exceeded |
-| `500 Internal Server Error` | Server Error | Unexpected errors, agent configuration issues |
-| `503 Service Unavailable` | Service Unavailable | Redis unavailable, timeouts |
+| Status Code                 | Meaning               | When Used                                     |
+|-----------------------------|-----------------------|-----------------------------------------------|
+| `200 OK`                    | Success               | Successful chat/health requests               |
+| `400 Bad Request`           | Validation Error      | Invalid request body or parameters            |
+| `401 Unauthorized`          | Authentication Failed | Missing or invalid API key/token              |
+| `429 Too Many Requests`     | Rate Limit Exceeded   | Any rate limit tier exceeded                  |
+| `500 Internal Server Error` | Server Error          | Unexpected errors, agent configuration issues |
+| `503 Service Unavailable`   | Service Unavailable   | Redis unavailable, timeouts                   |
 
 ---
 
 ## Rate Limiting
 
-The API implements rate limiting to ensure fair usage and protect service availability. Rate limits are enforced using Redis-backed counters with a fixed-window algorithm.
+The API implements rate limiting to ensure fair usage and protect service availability. Rate limits are enforced using
+Redis-backed counters with a fixed-window algorithm.
 
 ### Rate Limit Tiers
 
 Rate limits are applied in three tiers, checked in order of specificity:
 
-| Tier | Scope | Default Limit | Description |
-|------|-------|---------------|-------------|
-| **Per-API Key** | Individual API key | 500 requests/minute | Applied when `X-API-Key` header is present |
-| **Per-IP** | Client IP address | 100 requests/minute | Applied to all requests based on client IP |
-| **Global** | All requests | 1000 requests/minute | Applied across all API traffic |
+| Tier            | Scope              | Default Limit        | Description                                |
+|-----------------|--------------------|----------------------|--------------------------------------------|
+| **Per-API Key** | Individual API key | 500 requests/minute  | Applied when `X-API-Key` header is present |
+| **Per-IP**      | Client IP address  | 100 requests/minute  | Applied to all requests based on client IP |
+| **Global**      | All requests       | 1000 requests/minute | Applied across all API traffic             |
 
 A request is rejected if **any** tier's limit is exceeded. The most restrictive limit is reported in response headers.
 
 ### Rate Limit Headers
 
-All responses (both successful and rate-limited) include rate limit headers following the [IETF draft standard](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers):
+All responses (both successful and rate-limited) include rate limit headers following
+the [IETF draft standard](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers):
 
-| Header | Description |
-|--------|-------------|
-| `X-RateLimit-Limit` | Maximum requests allowed in the current window |
-| `X-RateLimit-Remaining` | Requests remaining in the current window |
-| `X-RateLimit-Reset` | Seconds until the rate limit window resets |
-| `Retry-After` | Seconds to wait before retrying (only on 429 responses) |
+| Header                  | Description                                             |
+|-------------------------|---------------------------------------------------------|
+| `X-RateLimit-Limit`     | Maximum requests allowed in the current window          |
+| `X-RateLimit-Remaining` | Requests remaining in the current window                |
+| `X-RateLimit-Reset`     | Seconds until the rate limit window resets              |
+| `Retry-After`           | Seconds to wait before retrying (only on 429 responses) |
 
 ### Rate Limit Response
 
@@ -474,12 +479,12 @@ The `error` message indicates which tier was exceeded: `global`, `ip`, or `api_k
 
 The following paths are not subject to rate limiting:
 
-| Path | Description |
-|------|-------------|
-| `/health` | Health check endpoint |
-| `/docs` | Swagger UI documentation |
-| `/openapi.json` | OpenAPI schema |
-| `/redoc` | ReDoc documentation |
+| Path            | Description              |
+|-----------------|--------------------------|
+| `/health`       | Health check endpoint    |
+| `/docs`         | Swagger UI documentation |
+| `/openapi.json` | OpenAPI schema           |
+| `/redoc`        | ReDoc documentation      |
 
 ### Handling Rate Limits
 
@@ -491,12 +496,12 @@ Check `X-RateLimit-Remaining` on each response. When approaching zero, reduce re
 
 ```typescript
 function checkRateLimits(response: Response): void {
-  const remaining = parseInt(response.headers.get('X-RateLimit-Remaining') || '0');
-  const reset = parseInt(response.headers.get('X-RateLimit-Reset') || '60');
+    const remaining = parseInt(response.headers.get('X-RateLimit-Remaining') || '0');
+    const reset = parseInt(response.headers.get('X-RateLimit-Reset') || '60');
 
-  if (remaining < 10) {
-    console.warn(`Rate limit warning: ${remaining} requests remaining, resets in ${reset}s`);
-  }
+    if (remaining < 10) {
+        console.warn(`Rate limit warning: ${remaining} requests remaining, resets in ${reset}s`);
+    }
 }
 ```
 
@@ -506,54 +511,67 @@ When receiving a 429 response, use the `Retry-After` header to determine wait ti
 
 ```typescript
 async function chatWithRateLimitHandling(message: string): Promise<void> {
-  const response = await fetch('https://api.example.com/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': 'your-api-key',
-    },
-    body: JSON.stringify({ message }),
-  });
+    const response = await fetch('https://api.example.com/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'your-api-key',
+        },
+        body: JSON.stringify({message}),
+    });
 
-  if (response.status === 429) {
-    const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
-    console.log(`Rate limited. Retrying in ${retryAfter} seconds...`);
-    await sleep(retryAfter * 1000);
-    return chatWithRateLimitHandling(message); // Retry
-  }
+    if (response.status === 429) {
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
+        console.log(`Rate limited. Retrying in ${retryAfter} seconds...`);
+        await sleep(retryAfter * 1000);
+        return chatWithRateLimitHandling(message); // Retry
+    }
 
-  // Handle successful response...
+    // Handle successful response...
 }
 ```
 
 #### 3. Use API Keys for Higher Limits
 
-Authenticated requests with API keys have higher per-key limits (500/min) compared to IP-based limits (100/min). Use API key authentication for applications requiring higher throughput.
+Authenticated requests with API keys have higher per-key limits (500/min) compared to IP-based limits (100/min). Use API
+key authentication for applications requiring higher throughput.
 
 ### Fail-Open Behavior
 
-If Redis is unavailable, the rate limiting middleware allows requests through rather than blocking legitimate traffic. This ensures service availability during infrastructure issues, though it temporarily disables rate limit protection.
+If Redis is unavailable, the rate limiting middleware allows requests through rather than blocking legitimate traffic.
+This ensures service availability during infrastructure issues, though it temporarily disables rate limit protection.
 
 ### Proxy Configuration
 
-When deployed behind a reverse proxy (nginx, Cloudflare, AWS ALB, etc.), proper configuration is required for accurate IP-based rate limiting.
+When deployed behind a reverse proxy (nginx, Cloudflare, AWS ALB, etc.), proper configuration is required for accurate
+IP-based rate limiting.
 
 #### Security Warning
 
-The `X-Forwarded-For` header can be spoofed by clients. **By default, the API does not trust this header** and uses the direct connection IP. Only enable proxy trust when deployed behind a properly configured reverse proxy.
+Proxy headers can be spoofed by clients. **By default, the API does not trust these headers** and uses the direct
+connection IP. Only enable proxy trust when deployed behind a properly configured reverse proxy.
 
 #### Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `RATE_LIMIT_TRUST_PROXY` | `false` | Enable parsing of `X-Forwarded-For` header |
-| `RATE_LIMIT_PROXY_COUNT` | `1` | Number of trusted proxies in the chain |
+| Variable                 | Default | Description                                                  |
+|--------------------------|---------|--------------------------------------------------------------|
+| `RATE_LIMIT_TRUST_PROXY` | `false` | Enable parsing of proxy headers                              |
+| `RATE_LIMIT_PROXY_COUNT` | `1`     | Number of trusted proxies in the chain (for X-Forwarded-For) |
+
+#### Header Priority
+
+When `RATE_LIMIT_TRUST_PROXY=true`, the API checks headers in order of reliability:
+
+1. **`CF-Connecting-IP`** (Cloudflare) - Most reliable, set by Cloudflare and cannot be spoofed
+2. **`X-Forwarded-For`** - Parsed based on `RATE_LIMIT_PROXY_COUNT`
 
 #### How Proxy Count Works
 
-When `RATE_LIMIT_TRUST_PROXY=true`, the API extracts the client IP from `X-Forwarded-For` by counting from the **rightmost** IP (most recently added by proxies):
+When using `X-Forwarded-For` (non-Cloudflare setups), the API extracts the client IP by counting from the **rightmost**
+IP (most recently added by proxies):
 
 **Single proxy (e.g., Cloudflare)** - `RATE_LIMIT_PROXY_COUNT=1`:
+
 ```
 Client Request: X-Forwarded-For: fake_ip
 After Cloudflare: X-Forwarded-For: fake_ip, real_client_ip
@@ -562,6 +580,7 @@ After Cloudflare: X-Forwarded-For: fake_ip, real_client_ip
 ```
 
 **Two proxies (e.g., CDN → Load Balancer)** - `RATE_LIMIT_PROXY_COUNT=2`:
+
 ```
 Client Request: X-Forwarded-For: fake_ip
 After CDN: X-Forwarded-For: fake_ip, real_client_ip
@@ -572,12 +591,13 @@ After LB: X-Forwarded-For: fake_ip, real_client_ip, cdn_ip
 
 #### Recommended Configurations
 
-| Deployment | TRUST_PROXY | PROXY_COUNT |
-|------------|-------------|-------------|
-| Direct (no proxy) | `false` | N/A |
-| Single proxy (Cloudflare, nginx) | `true` | `1` |
-| CDN + Load Balancer | `true` | `2` |
-| CDN + Load Balancer + Internal Proxy | `true` | `3` |
+| Deployment            | TRUST_PROXY | PROXY_COUNT | Notes                               |
+|-----------------------|-------------|-------------|-------------------------------------|
+| Direct (no proxy)     | `false`     | N/A         | Most secure                         |
+| Cloudflare only       | `true`      | `1`         | Uses CF-Connecting-IP automatically |
+| Cloudflare + nginx/LB | `true`      | `2`         | Uses CF-Connecting-IP automatically |
+| Non-CF single proxy   | `true`      | `1`         | Uses X-Forwarded-For                |
+| Non-CF CDN + LB       | `true`      | `2`         | Uses X-Forwarded-For                |
 
 ---
 
@@ -587,65 +607,65 @@ After LB: X-Forwarded-For: fake_ip, real_client_ip, cdn_ip
 
 ```typescript
 async function chat(message: string, conversationId?: string): Promise<void> {
-  const response = await fetch('https://api.example.com/chat', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-API-Key': 'your-api-key',
-    },
-    body: JSON.stringify({
-      message,
-      conversation_id: conversationId,
-    }),
-  });
+    const response = await fetch('https://api.example.com/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'your-api-key',
+        },
+        body: JSON.stringify({
+            message,
+            conversation_id: conversationId,
+        }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(`${error.code}: ${error.error}`);
-  }
-
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n\n');
-    buffer = lines.pop() || '';
-
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const event = JSON.parse(line.slice(6));
-        handleEvent(event);
-      }
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(`${error.code}: ${error.error}`);
     }
-  }
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const {done, value} = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+            if (line.startsWith('data: ')) {
+                const event = JSON.parse(line.slice(6));
+                handleEvent(event);
+            }
+        }
+    }
 }
 
 function handleEvent(event: SSEEvent): void {
-  switch (event.event) {
-    case 'start':
-      console.log('Conversation ID:', event.conversation_id);
-      break;
-    case 'delta':
-      process.stdout.write(event.content);
-      break;
-    case 'tool_start':
-      console.log(`\n[Using tool: ${event.tool_name}]`);
-      break;
-    case 'tool_end':
-      console.log(`[Tool ${event.tool_name}: ${event.success ? 'success' : 'failed'}]`);
-      break;
-    case 'end':
-      console.log('\n[Complete]');
-      break;
-    case 'error':
-      console.error(`Error (${event.code}): ${event.error}`);
-      break;
-  }
+    switch (event.event) {
+        case 'start':
+            console.log('Conversation ID:', event.conversation_id);
+            break;
+        case 'delta':
+            process.stdout.write(event.content);
+            break;
+        case 'tool_start':
+            console.log(`\n[Using tool: ${event.tool_name}]`);
+            break;
+        case 'tool_end':
+            console.log(`[Tool ${event.tool_name}: ${event.success ? 'success' : 'failed'}]`);
+            break;
+        case 'end':
+            console.log('\n[Complete]');
+            break;
+        case 'error':
+            console.error(`Error (${event.code}): ${event.error}`);
+            break;
+    }
 }
 ```
 
@@ -654,6 +674,7 @@ function handleEvent(event: SSEEvent): void {
 ```python
 import httpx
 import json
+
 
 def chat(message: str, conversation_id: str | None = None) -> None:
     headers = {
@@ -665,10 +686,10 @@ def chat(message: str, conversation_id: str | None = None) -> None:
         payload["conversation_id"] = conversation_id
 
     with httpx.stream(
-        "POST",
-        "https://api.example.com/chat",
-        headers=headers,
-        json=payload,
+            "POST",
+            "https://api.example.com/chat",
+            headers=headers,
+            json=payload,
     ) as response:
         response.raise_for_status()
 
@@ -676,6 +697,7 @@ def chat(message: str, conversation_id: str | None = None) -> None:
             if line.startswith("data: "):
                 event = json.loads(line[6:])
                 handle_event(event)
+
 
 def handle_event(event: dict) -> None:
     event_type = event["event"]
@@ -827,22 +849,22 @@ For transient errors (503 status codes), implement exponential backoff:
 
 ```typescript
 async function chatWithRetry(
-  message: string,
-  maxRetries = 3
+    message: string,
+    maxRetries = 3
 ): Promise<void> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await chat(message);
-      return;
-    } catch (error) {
-      if (attempt === maxRetries - 1) throw error;
-      if (error.code === 'REDIS_ERROR' || error.code === 'AGENT_ERROR') {
-        await sleep(Math.pow(2, attempt) * 1000);
-        continue;
-      }
-      throw error;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+            await chat(message);
+            return;
+        } catch (error) {
+            if (attempt === maxRetries - 1) throw error;
+            if (error.code === 'REDIS_ERROR' || error.code === 'AGENT_ERROR') {
+                await sleep(Math.pow(2, attempt) * 1000);
+                continue;
+            }
+            throw error;
+        }
     }
-  }
 }
 ```
 
@@ -866,20 +888,21 @@ async function chatWithRetry(
 
 All responses include:
 
-| Header | Description |
-|--------|-------------|
-| `X-Request-ID` | Unique identifier for the request (UUID) |
-| `X-RateLimit-Limit` | Maximum requests allowed in the current window |
-| `X-RateLimit-Remaining` | Requests remaining in the current window |
-| `X-RateLimit-Reset` | Seconds until the rate limit window resets |
+| Header                  | Description                                    |
+|-------------------------|------------------------------------------------|
+| `X-Request-ID`          | Unique identifier for the request (UUID)       |
+| `X-RateLimit-Limit`     | Maximum requests allowed in the current window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window       |
+| `X-RateLimit-Reset`     | Seconds until the rate limit window resets     |
 
 Rate-limited responses (429) also include:
 
-| Header | Description |
-|--------|-------------|
+| Header        | Description                     |
+|---------------|---------------------------------|
 | `Retry-After` | Seconds to wait before retrying |
 
-Use the `X-Request-ID` when reporting issues or debugging. See [Rate Limiting](#rate-limiting) for details on rate limit headers.
+Use the `X-Request-ID` when reporting issues or debugging. See [Rate Limiting](#rate-limiting) for details on rate limit
+headers.
 
 ---
 

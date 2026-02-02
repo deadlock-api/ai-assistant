@@ -36,6 +36,13 @@ DEFAULT_API_KEY_LIMIT = 500
 # Default window size in seconds
 DEFAULT_WINDOW_SECONDS = 60
 
+# Cached configuration (loaded once at startup)
+_cached_config: RateLimitConfig | None = None
+
+
+class RateLimitConfigError(Exception):
+    """Raised when rate limit configuration is invalid."""
+
 
 @dataclass
 class RateLimitConfig:
@@ -46,6 +53,8 @@ class RateLimitConfig:
     api_key_limit: int
     window_seconds: int
     enabled: bool
+    trust_proxy: bool
+    proxy_count: int
 
 
 @dataclass
@@ -59,21 +68,63 @@ class RateLimitResult:
     limit_type: str  # "global", "ip", or "api_key"
 
 
-def get_rate_limit_config() -> RateLimitConfig:
-    """Load rate limit configuration from environment variables.
+def _parse_positive_int(value: str, name: str) -> int:
+    """Parse a string as a positive integer.
 
-    Environment variables:
-        RATE_LIMIT_ENABLED: Enable/disable rate limiting (default: true)
-        RATE_LIMIT_GLOBAL: Global requests per window (default: 1000)
-        RATE_LIMIT_PER_IP: Requests per IP per window (default: 100)
-        RATE_LIMIT_PER_API_KEY: Requests per API key per window (default: 500)
-        RATE_LIMIT_WINDOW_SECONDS: Window duration in seconds (default: 60)
+    Args:
+        value: The string value to parse.
+        name: The name of the configuration for error messages.
+
+    Returns:
+        The parsed positive integer.
+
+    Raises:
+        RateLimitConfigError: If the value is not a positive integer.
+    """
+    try:
+        result = int(value)
+    except ValueError as err:
+        raise RateLimitConfigError(f"{name} must be an integer, got: {value!r}") from err
+
+    if result <= 0:
+        raise RateLimitConfigError(f"{name} must be a positive integer (> 0), got: {result}")
+
+    return result
+
+
+def _load_rate_limit_config() -> RateLimitConfig:
+    """Load and validate rate limit configuration from environment variables.
+
+    Returns:
+        Validated RateLimitConfig instance.
+
+    Raises:
+        RateLimitConfigError: If any configuration value is invalid.
     """
     enabled = os.environ.get("RATE_LIMIT_ENABLED", "true").lower() != "false"
-    global_limit = int(os.environ.get("RATE_LIMIT_GLOBAL", str(DEFAULT_GLOBAL_LIMIT)))
-    ip_limit = int(os.environ.get("RATE_LIMIT_PER_IP", str(DEFAULT_IP_LIMIT)))
-    api_key_limit = int(os.environ.get("RATE_LIMIT_PER_API_KEY", str(DEFAULT_API_KEY_LIMIT)))
-    window_seconds = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", str(DEFAULT_WINDOW_SECONDS)))
+    # Default to not trusting X-Forwarded-For for security
+    trust_proxy = os.environ.get("RATE_LIMIT_TRUST_PROXY", "false").lower() == "true"
+
+    global_limit = _parse_positive_int(
+        os.environ.get("RATE_LIMIT_GLOBAL", str(DEFAULT_GLOBAL_LIMIT)),
+        "RATE_LIMIT_GLOBAL",
+    )
+    ip_limit = _parse_positive_int(
+        os.environ.get("RATE_LIMIT_PER_IP", str(DEFAULT_IP_LIMIT)),
+        "RATE_LIMIT_PER_IP",
+    )
+    api_key_limit = _parse_positive_int(
+        os.environ.get("RATE_LIMIT_PER_API_KEY", str(DEFAULT_API_KEY_LIMIT)),
+        "RATE_LIMIT_PER_API_KEY",
+    )
+    window_seconds = _parse_positive_int(
+        os.environ.get("RATE_LIMIT_WINDOW_SECONDS", str(DEFAULT_WINDOW_SECONDS)),
+        "RATE_LIMIT_WINDOW_SECONDS",
+    )
+    proxy_count = _parse_positive_int(
+        os.environ.get("RATE_LIMIT_PROXY_COUNT", "1"),
+        "RATE_LIMIT_PROXY_COUNT",
+    )
 
     return RateLimitConfig(
         global_limit=global_limit,
@@ -81,7 +132,54 @@ def get_rate_limit_config() -> RateLimitConfig:
         api_key_limit=api_key_limit,
         window_seconds=window_seconds,
         enabled=enabled,
+        trust_proxy=trust_proxy,
+        proxy_count=proxy_count,
     )
+
+
+def get_rate_limit_config() -> RateLimitConfig:
+    """Get the cached rate limit configuration.
+
+    Configuration is loaded once from environment variables on first access
+    and cached for subsequent calls. Use reload_rate_limit_config() to
+    force a reload.
+
+    Environment variables:
+        RATE_LIMIT_ENABLED: Enable/disable rate limiting (default: true)
+        RATE_LIMIT_GLOBAL: Global requests per window (default: 1000)
+        RATE_LIMIT_PER_IP: Requests per IP per window (default: 100)
+        RATE_LIMIT_PER_API_KEY: Requests per API key per window (default: 500)
+        RATE_LIMIT_WINDOW_SECONDS: Window duration in seconds (default: 60)
+        RATE_LIMIT_TRUST_PROXY: Trust X-Forwarded-For header (default: false)
+        RATE_LIMIT_PROXY_COUNT: Number of trusted proxies in chain (default: 1)
+
+    Returns:
+        The cached RateLimitConfig instance.
+
+    Raises:
+        RateLimitConfigError: If any configuration value is invalid.
+    """
+    global _cached_config
+    if _cached_config is None:
+        _cached_config = _load_rate_limit_config()
+    return _cached_config
+
+
+def reload_rate_limit_config() -> RateLimitConfig:
+    """Force reload of rate limit configuration from environment variables.
+
+    Clears the cached configuration and reloads from environment variables.
+    Useful for testing or when environment variables have changed.
+
+    Returns:
+        The newly loaded RateLimitConfig instance.
+
+    Raises:
+        RateLimitConfigError: If any configuration value is invalid.
+    """
+    global _cached_config
+    _cached_config = None
+    return get_rate_limit_config()
 
 
 def _hash_api_key(api_key: str) -> str:
@@ -96,24 +194,51 @@ def _hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode()).hexdigest()[:16]
 
 
-def _get_client_ip(request: Request) -> str:
+def _get_client_ip(request: Request, config: RateLimitConfig) -> str:
     """Extract client IP address from request.
 
-    Checks X-Forwarded-For header first (for proxied requests),
-    then falls back to the direct client host.
+    When trust_proxy is enabled, checks headers in order of reliability:
+    1. CF-Connecting-IP (Cloudflare's verified client IP - most reliable)
+    2. X-Forwarded-For (parsed based on proxy_count)
+
+    Security note: These headers can be spoofed by clients if not behind
+    a trusted proxy. Only enable trust_proxy when deployed behind a properly
+    configured reverse proxy (Cloudflare, nginx, etc.).
 
     Args:
         request: The FastAPI request.
+        config: Rate limit configuration with proxy settings.
 
     Returns:
         The client IP address.
-    """
-    forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
-        # X-Forwarded-For can contain multiple IPs, take the first (client)
-        return forwarded_for.split(",")[0].strip()
 
-    # Fall back to direct client
+    Example with Cloudflare:
+        CF-Connecting-IP: "real_client_ip"
+        Returns: "real_client_ip" (Cloudflare's verified client IP)
+
+    Example with proxy_count=2 (non-Cloudflare CDN -> Load Balancer -> App):
+        X-Forwarded-For: "fake_ip, real_client_ip, cdn_ip"
+        Returns: "real_client_ip" (second from right)
+    """
+    if config.trust_proxy:
+        # Prefer Cloudflare's CF-Connecting-IP header (cannot be spoofed when behind CF)
+        cf_connecting_ip = request.headers.get("CF-Connecting-IP")
+        if cf_connecting_ip:
+            return cf_connecting_ip.strip()
+
+        # Fall back to X-Forwarded-For parsing
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            ips = [ip.strip() for ip in forwarded_for.split(",")]
+            # Take the IP at position -proxy_count (counting from right)
+            # This is the IP as seen by the first trusted proxy
+            if len(ips) >= config.proxy_count:
+                return ips[-config.proxy_count]
+            # If fewer IPs than proxy_count, the chain is shorter than expected
+            # Take the first (leftmost) IP as the client
+            return ips[0]
+
+    # Use direct client connection IP (most secure, but requires direct connection)
     if request.client:
         return request.client.host
     return "unknown"
@@ -177,6 +302,8 @@ async def check_rate_limits(
         RedisUnavailableError: If Redis is unavailable.
     """
     api_key = request.headers.get("X-API-Key")
+    if api_key is not None:
+        api_key = api_key.strip() or None  # Treat empty/whitespace as no API key
 
     # Track API key rate limit results if present
     api_key_count = 0
@@ -199,7 +326,7 @@ async def check_rate_limits(
             )
 
     # Check per-IP limit
-    client_ip = _get_client_ip(request)
+    client_ip = _get_client_ip(request, config)
     ip_key = f"{IP_KEY_PREFIX}{client_ip}"
     ip_count, ip_ttl = await _check_rate_limit(ip_key, config.window_seconds)
     ip_remaining = max(0, config.ip_limit - ip_count)
@@ -309,7 +436,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        # Load config on each request to support runtime changes
         config = get_rate_limit_config()
 
         # Skip rate limiting if disabled
