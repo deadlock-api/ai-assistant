@@ -248,7 +248,7 @@ verify facts via tools, and execute complex analytics.
 * **Tone**: Warm, confident, never fawning.
 </response_formatting>
 """
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 # Default timeout in seconds
 DEFAULT_TIMEOUT_SECONDS = 600
