@@ -18,8 +18,9 @@ This document provides comprehensive documentation for third-party developers in
 5. [Server-Sent Events (SSE)](#server-sent-events-sse)
 6. [Error Handling](#error-handling)
 7. [Status Codes](#status-codes)
-8. [Integration Examples](#integration-examples)
-9. [Best Practices](#best-practices)
+8. [Rate Limiting](#rate-limiting)
+9. [Integration Examples](#integration-examples)
+10. [Best Practices](#best-practices)
 
 ---
 
@@ -377,6 +378,7 @@ interface ChatToolEndEvent {
 |------|-------------|---------------------|
 | `AUTH_FAILED` | Authentication failed (invalid/missing API key or Turnstile token) | 401 |
 | `VALIDATION_ERROR` | Request body validation failed | 400 |
+| `RATE_LIMIT_EXCEEDED` | Rate limit exceeded (global, per-IP, or per-API key) | 429 |
 | `AGENT_ERROR` | AI agent processing error | 500, 503 |
 | `REDIS_ERROR` | Storage service unavailable | 503 |
 | `INTERNAL_ERROR` | Unexpected server error | 500 |
@@ -414,8 +416,123 @@ The `AGENT_ERROR` code covers several underlying conditions:
 | `200 OK` | Success | Successful chat/health requests |
 | `400 Bad Request` | Validation Error | Invalid request body or parameters |
 | `401 Unauthorized` | Authentication Failed | Missing or invalid API key/token |
+| `429 Too Many Requests` | Rate Limit Exceeded | Any rate limit tier exceeded |
 | `500 Internal Server Error` | Server Error | Unexpected errors, agent configuration issues |
-| `503 Service Unavailable` | Service Unavailable | Redis unavailable, rate limits, timeouts |
+| `503 Service Unavailable` | Service Unavailable | Redis unavailable, timeouts |
+
+---
+
+## Rate Limiting
+
+The API implements rate limiting to ensure fair usage and protect service availability. Rate limits are enforced using Redis-backed counters with a fixed-window algorithm.
+
+### Rate Limit Tiers
+
+Rate limits are applied in three tiers, checked in order of specificity:
+
+| Tier | Scope | Default Limit | Description |
+|------|-------|---------------|-------------|
+| **Per-API Key** | Individual API key | 500 requests/minute | Applied when `X-API-Key` header is present |
+| **Per-IP** | Client IP address | 100 requests/minute | Applied to all requests based on client IP |
+| **Global** | All requests | 1000 requests/minute | Applied across all API traffic |
+
+A request is rejected if **any** tier's limit is exceeded. The most restrictive limit is reported in response headers.
+
+### Rate Limit Headers
+
+All responses (both successful and rate-limited) include rate limit headers following the [IETF draft standard](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers):
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed in the current window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Seconds until the rate limit window resets |
+| `Retry-After` | Seconds to wait before retrying (only on 429 responses) |
+
+### Rate Limit Response
+
+When a rate limit is exceeded, the API returns a `429 Too Many Requests` response:
+
+```http
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 45
+Retry-After: 45
+
+{
+  "error": "Rate limit exceeded (ip)",
+  "code": "RATE_LIMIT_EXCEEDED",
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+The `error` message indicates which tier was exceeded: `global`, `ip`, or `api_key`.
+
+### Paths Exempt from Rate Limiting
+
+The following paths are not subject to rate limiting:
+
+| Path | Description |
+|------|-------------|
+| `/health` | Health check endpoint |
+| `/docs` | Swagger UI documentation |
+| `/openapi.json` | OpenAPI schema |
+| `/redoc` | ReDoc documentation |
+
+### Handling Rate Limits
+
+Clients should implement the following strategies:
+
+#### 1. Monitor Rate Limit Headers
+
+Check `X-RateLimit-Remaining` on each response. When approaching zero, reduce request frequency.
+
+```typescript
+function checkRateLimits(response: Response): void {
+  const remaining = parseInt(response.headers.get('X-RateLimit-Remaining') || '0');
+  const reset = parseInt(response.headers.get('X-RateLimit-Reset') || '60');
+
+  if (remaining < 10) {
+    console.warn(`Rate limit warning: ${remaining} requests remaining, resets in ${reset}s`);
+  }
+}
+```
+
+#### 2. Implement Exponential Backoff on 429
+
+When receiving a 429 response, use the `Retry-After` header to determine wait time:
+
+```typescript
+async function chatWithRateLimitHandling(message: string): Promise<void> {
+  const response = await fetch('https://api.example.com/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-API-Key': 'your-api-key',
+    },
+    body: JSON.stringify({ message }),
+  });
+
+  if (response.status === 429) {
+    const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
+    console.log(`Rate limited. Retrying in ${retryAfter} seconds...`);
+    await sleep(retryAfter * 1000);
+    return chatWithRateLimitHandling(message); // Retry
+  }
+
+  // Handle successful response...
+}
+```
+
+#### 3. Use API Keys for Higher Limits
+
+Authenticated requests with API keys have higher per-key limits (500/min) compared to IP-based limits (100/min). Use API key authentication for applications requiring higher throughput.
+
+### Fail-Open Behavior
+
+If Redis is unavailable, the rate limiting middleware allows requests through rather than blocking legitimate traffic. This ensures service availability during infrastructure issues, though it temporarily disables rate limit protection.
 
 ---
 
@@ -693,9 +810,10 @@ async function chatWithRetry(
 
 ### 6. Rate Limiting
 
-- Implement client-side rate limiting to avoid hitting server limits
-- Handle `503 Service Unavailable` responses with retry logic
-- Monitor for `AGENT_ERROR` with rate limit conditions
+- Monitor `X-RateLimit-Remaining` headers and reduce request frequency when approaching zero
+- Handle `429 Too Many Requests` responses by waiting for the duration specified in `Retry-After`
+- Use API key authentication for higher rate limits (500/min vs 100/min for IP-based)
+- See [Rate Limiting](#rate-limiting) for comprehensive details
 
 ---
 
@@ -706,8 +824,17 @@ All responses include:
 | Header | Description |
 |--------|-------------|
 | `X-Request-ID` | Unique identifier for the request (UUID) |
+| `X-RateLimit-Limit` | Maximum requests allowed in the current window |
+| `X-RateLimit-Remaining` | Requests remaining in the current window |
+| `X-RateLimit-Reset` | Seconds until the rate limit window resets |
 
-Use this ID when reporting issues or debugging.
+Rate-limited responses (429) also include:
+
+| Header | Description |
+|--------|-------------|
+| `Retry-After` | Seconds to wait before retrying |
+
+Use the `X-Request-ID` when reporting issues or debugging. See [Rate Limiting](#rate-limiting) for details on rate limit headers.
 
 ---
 
