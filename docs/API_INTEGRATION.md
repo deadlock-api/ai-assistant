@@ -534,6 +534,51 @@ Authenticated requests with API keys have higher per-key limits (500/min) compar
 
 If Redis is unavailable, the rate limiting middleware allows requests through rather than blocking legitimate traffic. This ensures service availability during infrastructure issues, though it temporarily disables rate limit protection.
 
+### Proxy Configuration
+
+When deployed behind a reverse proxy (nginx, Cloudflare, AWS ALB, etc.), proper configuration is required for accurate IP-based rate limiting.
+
+#### Security Warning
+
+The `X-Forwarded-For` header can be spoofed by clients. **By default, the API does not trust this header** and uses the direct connection IP. Only enable proxy trust when deployed behind a properly configured reverse proxy.
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_TRUST_PROXY` | `false` | Enable parsing of `X-Forwarded-For` header |
+| `RATE_LIMIT_PROXY_COUNT` | `1` | Number of trusted proxies in the chain |
+
+#### How Proxy Count Works
+
+When `RATE_LIMIT_TRUST_PROXY=true`, the API extracts the client IP from `X-Forwarded-For` by counting from the **rightmost** IP (most recently added by proxies):
+
+**Single proxy (e.g., Cloudflare)** - `RATE_LIMIT_PROXY_COUNT=1`:
+```
+Client Request: X-Forwarded-For: fake_ip
+After Cloudflare: X-Forwarded-For: fake_ip, real_client_ip
+                                          ^^^^^^^^^^^^^^
+                                          Used (rightmost)
+```
+
+**Two proxies (e.g., CDN → Load Balancer)** - `RATE_LIMIT_PROXY_COUNT=2`:
+```
+Client Request: X-Forwarded-For: fake_ip
+After CDN: X-Forwarded-For: fake_ip, real_client_ip
+After LB: X-Forwarded-For: fake_ip, real_client_ip, cdn_ip
+                                    ^^^^^^^^^^^^^^
+                                    Used (2nd from right)
+```
+
+#### Recommended Configurations
+
+| Deployment | TRUST_PROXY | PROXY_COUNT |
+|------------|-------------|-------------|
+| Direct (no proxy) | `false` | N/A |
+| Single proxy (Cloudflare, nginx) | `true` | `1` |
+| CDN + Load Balancer | `true` | `2` |
+| CDN + Load Balancer + Internal Proxy | `true` | `3` |
+
 ---
 
 ## Integration Examples
