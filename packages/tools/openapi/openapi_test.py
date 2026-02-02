@@ -1153,8 +1153,7 @@ class TestGetHeroMappingTool:
         with patch.object(hero_mapping_tool, "_get_client", return_value=mock_client):
             result = await hero_mapping_tool._run()
 
-        assert result["name_to_id"] == {"Abrams": 1, "Bebop": 2, "Dynamo": 3}
-        assert result["id_to_name"] == {1: "Abrams", 2: "Bebop", 3: "Dynamo"}
+        assert result == {"Abrams": 1, "Bebop": 2, "Dynamo": 3}
         mock_client.get.assert_called_once_with(f"{ASSETS_API_BASE_URL}/v2/heroes")
 
     @pytest.mark.asyncio
@@ -1175,8 +1174,7 @@ class TestGetHeroMappingTool:
         with patch.object(hero_mapping_tool, "_get_client", return_value=mock_client):
             result = await hero_mapping_tool._run()
 
-        assert result["name_to_id"] == {"Abrams": 1, "Dynamo": 3}
-        assert result["id_to_name"] == {1: "Abrams", 3: "Dynamo"}
+        assert result == {"Abrams": 1, "Dynamo": 3}
 
     @pytest.mark.asyncio
     async def test_run_handles_http_error(self, hero_mapping_tool: GetHeroMappingTool) -> None:
@@ -1236,7 +1234,7 @@ class TestGetHeroMappingTool:
 
     def test_result_summary_formatting(self, hero_mapping_tool: GetHeroMappingTool) -> None:
         """Test result summary formatting."""
-        result = {"name_to_id": {"Abrams": 1, "Bebop": 2}, "id_to_name": {1: "Abrams", 2: "Bebop"}}
+        result = {"Abrams": 1, "Bebop": 2}
         summary = hero_mapping_tool._create_result_summary(result)
         assert "Hero mapping: 2 heroes" in summary
 
@@ -1280,8 +1278,7 @@ class TestGetItemMappingTool:
         with patch.object(item_mapping_tool, "_get_client", return_value=mock_client):
             result = await item_mapping_tool._run()
 
-        assert result["name_to_id"] == {"Basic Magazine": 100, "Healing Rite": 101, "Monster Rounds": 102}
-        assert result["id_to_name"] == {100: "Basic Magazine", 101: "Healing Rite", 102: "Monster Rounds"}
+        assert result == {"Basic Magazine": 100, "Healing Rite": 101, "Monster Rounds": 102}
         mock_client.get.assert_called_once_with(f"{ASSETS_API_BASE_URL}/v2/items")
 
     @pytest.mark.asyncio
@@ -1302,8 +1299,7 @@ class TestGetItemMappingTool:
         with patch.object(item_mapping_tool, "_get_client", return_value=mock_client):
             result = await item_mapping_tool._run()
 
-        assert result["name_to_id"] == {"Basic Magazine": 100, "Monster Rounds": 102}
-        assert result["id_to_name"] == {100: "Basic Magazine", 102: "Monster Rounds"}
+        assert result == {"Basic Magazine": 100, "Monster Rounds": 102}
 
     @pytest.mark.asyncio
     async def test_run_handles_http_error(self, item_mapping_tool: GetItemMappingTool) -> None:
@@ -1363,10 +1359,7 @@ class TestGetItemMappingTool:
 
     def test_result_summary_formatting(self, item_mapping_tool: GetItemMappingTool) -> None:
         """Test result summary formatting."""
-        result = {
-            "name_to_id": {"Basic Magazine": 100, "Healing Rite": 101},
-            "id_to_name": {100: "Basic Magazine", 101: "Healing Rite"},
-        }
+        result = {"Basic Magazine": 100, "Healing Rite": 101}
         summary = item_mapping_tool._create_result_summary(result)
         assert "Item mapping: 2 items" in summary
 

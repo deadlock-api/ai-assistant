@@ -133,10 +133,10 @@ class GetHeroNameTool(BaseTool):
 
 
 class GetHeroMappingTool(BaseTool):
-    """Tool to get the complete hero name ↔ ID mapping.
+    """Tool to get the complete hero name to ID mapping.
 
-    Returns a dictionary containing both name-to-id and id-to-name mappings
-    for all active heroes in the game.
+    Returns a dictionary mapping hero names to their IDs for all active
+    heroes in the game.
 
     Args:
         sse_callback: Callback function to emit SSE events
@@ -158,8 +158,8 @@ class GetHeroMappingTool(BaseTool):
         return self._http_client
 
     @retry(max_attempts=3, base_delay=1.0)
-    async def _run(self) -> dict[str, Any]:
-        """Fetch all heroes and return the name ↔ ID mapping.
+    async def _run(self) -> dict[str, int]:
+        """Fetch all heroes and return the name to ID mapping.
 
         Returns:
             dict mapping hero names to their IDs
@@ -190,16 +190,15 @@ class GetHeroMappingTool(BaseTool):
         except httpx.RequestError as e:
             raise OpenAPIConnectionError(f"Network error: {e}") from e
 
-    def _create_result_summary(self, result: dict[str, Any]) -> str:
+    def _create_result_summary(self, result: dict[str, int]) -> str:
         """Return a summary of the mapping."""
-        name_to_id = result.get("name_to_id", {})
-        return f"Hero mapping: {len(name_to_id)} heroes"
+        return f"Hero mapping: {len(result)} heroes"
 
     def get_definition(self) -> dict[str, Any]:
         """Get tool definition for agent configuration."""
         return {
             "name": self.name,
-            "description": "Get the complete hero name ↔ ID mapping for all heroes",
+            "description": "Get the complete hero name to ID mapping for all heroes",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -215,10 +214,10 @@ class GetHeroMappingTool(BaseTool):
 
 
 class GetItemMappingTool(BaseTool):
-    """Tool to get the complete item name ↔ ID mapping.
+    """Tool to get the complete item name to ID mapping.
 
-    Returns a dictionary containing both name-to-id and id-to-name mappings
-    for all items in the game.
+    Returns a dictionary mapping item names to their IDs for all items
+    in the game.
 
     Args:
         sse_callback: Callback function to emit SSE events
@@ -240,8 +239,8 @@ class GetItemMappingTool(BaseTool):
         return self._http_client
 
     @retry(max_attempts=3, base_delay=1.0)
-    async def _run(self) -> dict[str, Any]:
-        """Fetch all items and return the name ↔ ID mapping.
+    async def _run(self) -> dict[str, int]:
+        """Fetch all items and return the name to ID mapping.
 
         Returns:
             dict mapping item names to their IDs
@@ -272,16 +271,15 @@ class GetItemMappingTool(BaseTool):
         except httpx.RequestError as e:
             raise OpenAPIConnectionError(f"Network error: {e}") from e
 
-    def _create_result_summary(self, result: dict[str, Any]) -> str:
+    def _create_result_summary(self, result: dict[str, int]) -> str:
         """Return a summary of the mapping."""
-        name_to_id = result.get("name_to_id", {})
-        return f"Item mapping: {len(name_to_id)} items"
+        return f"Item mapping: {len(result)} items"
 
     def get_definition(self) -> dict[str, Any]:
         """Get tool definition for agent configuration."""
         return {
             "name": self.name,
-            "description": "Get the complete item name ↔ ID mapping for all items",
+            "description": "Get the complete item name to ID mapping for all items",
             "parameters": {
                 "type": "object",
                 "properties": {},
