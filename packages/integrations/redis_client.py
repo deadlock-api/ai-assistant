@@ -203,6 +203,52 @@ async def redis_expire(key: str, seconds: int) -> bool:
         raise RedisUnavailableError(f"Redis connection failed: {e}") from e
 
 
+async def redis_incr(key: str) -> int:
+    """
+    Increment a value in Redis by 1.
+
+    Args:
+        key: The key to increment.
+
+    Returns:
+        The new value after incrementing.
+
+    Raises:
+        RedisUnavailableError: If Redis is unavailable.
+    """
+    try:
+        client = await get_redis_client()
+        result = await client.incr(key)
+        return int(result)
+    except RedisUnavailableError:
+        raise
+    except (RedisConnectionError, OSError) as e:
+        raise RedisUnavailableError(f"Redis connection failed: {e}") from e
+
+
+async def redis_ttl(key: str) -> int:
+    """
+    Get the time to live for a key in seconds.
+
+    Args:
+        key: The key to check.
+
+    Returns:
+        TTL in seconds, -1 if key has no TTL, -2 if key doesn't exist.
+
+    Raises:
+        RedisUnavailableError: If Redis is unavailable.
+    """
+    try:
+        client = await get_redis_client()
+        result = await client.ttl(key)
+        return int(result)
+    except RedisUnavailableError:
+        raise
+    except (RedisConnectionError, OSError) as e:
+        raise RedisUnavailableError(f"Redis connection failed: {e}") from e
+
+
 # Type alias for external use
 type RedisClient = Redis
 
@@ -218,4 +264,6 @@ __all__ = [
     "redis_delete",
     "redis_exists",
     "redis_expire",
+    "redis_incr",
+    "redis_ttl",
 ]

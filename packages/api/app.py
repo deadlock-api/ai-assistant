@@ -13,6 +13,7 @@ from packages.api.chat import router as chat_router
 from packages.api.errors import RequestIDMiddleware, register_exception_handlers
 from packages.api.health import router as health_router
 from packages.api.logging import RequestLoggingMiddleware, configure_logging
+from packages.api.rate_limit import RateLimitMiddleware
 
 
 def _get_cors_origins() -> list[str]:
@@ -55,9 +56,11 @@ register_exception_handlers(app)
 # Middleware order matters (LIFO - last added runs first):
 # 1. RequestIDMiddleware - generates request ID (runs first)
 # 2. RequestLoggingMiddleware - logs after response (needs request ID from context)
-# 3. APIKeyAuthMiddleware - validates authentication
-# 4. CORSMiddleware - handles preflight OPTIONS requests (must run before auth)
+# 3. RateLimitMiddleware - enforces rate limits (runs after logging, before auth)
+# 4. APIKeyAuthMiddleware - validates authentication
+# 5. CORSMiddleware - handles preflight OPTIONS requests (must run before auth)
 app.add_middleware(cast(Any, APIKeyAuthMiddleware))
+app.add_middleware(cast(Any, RateLimitMiddleware))
 app.add_middleware(cast(Any, RequestLoggingMiddleware))
 app.add_middleware(cast(Any, RequestIDMiddleware))
 app.add_middleware(
