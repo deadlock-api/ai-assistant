@@ -16,8 +16,10 @@ from packages.integrations.redis_client import (
     redis_exists,
     redis_expire,
     redis_get,
+    redis_incr,
     redis_ping,
     redis_set,
+    redis_ttl,
 )
 
 # Shorter path constant for patching
@@ -311,3 +313,87 @@ class TestRedisExpire:
         with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
             result = await redis_expire("nonexistent_key", 3600)
             assert result is False
+
+
+class TestRedisIncr:
+    """Tests for redis_incr function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_incremented_value(self) -> None:
+        """Test that incr returns the new value after incrementing."""
+        mock_redis = MagicMock()
+        mock_redis.incr = AsyncMock(return_value=1)
+
+        with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
+            result = await redis_incr("test_counter")
+            assert result == 1
+            mock_redis.incr.assert_called_once_with("test_counter")
+
+    @pytest.mark.asyncio
+    async def test_increments_existing_value(self) -> None:
+        """Test that incr increments an existing counter."""
+        mock_redis = MagicMock()
+        mock_redis.incr = AsyncMock(return_value=5)
+
+        with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
+            result = await redis_incr("existing_counter")
+            assert result == 5
+
+    @pytest.mark.asyncio
+    async def test_raises_unavailable_on_connection_error(self) -> None:
+        """Test that incr raises RedisUnavailableError on connection errors."""
+        mock_redis = MagicMock()
+        mock_redis.incr = AsyncMock(side_effect=OSError("Connection refused"))
+
+        with (
+            patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis),
+            pytest.raises(RedisUnavailableError, match="Redis connection failed"),
+        ):
+            await redis_incr("test_counter")
+
+
+class TestRedisTTL:
+    """Tests for redis_ttl function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_ttl_when_key_exists(self) -> None:
+        """Test that ttl returns remaining time to live."""
+        mock_redis = MagicMock()
+        mock_redis.ttl = AsyncMock(return_value=3600)
+
+        with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
+            result = await redis_ttl("test_key")
+            assert result == 3600
+            mock_redis.ttl.assert_called_once_with("test_key")
+
+    @pytest.mark.asyncio
+    async def test_returns_minus_one_when_no_ttl(self) -> None:
+        """Test that ttl returns -1 when key has no TTL."""
+        mock_redis = MagicMock()
+        mock_redis.ttl = AsyncMock(return_value=-1)
+
+        with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
+            result = await redis_ttl("no_ttl_key")
+            assert result == -1
+
+    @pytest.mark.asyncio
+    async def test_returns_minus_two_when_key_not_found(self) -> None:
+        """Test that ttl returns -2 when key doesn't exist."""
+        mock_redis = MagicMock()
+        mock_redis.ttl = AsyncMock(return_value=-2)
+
+        with patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis):
+            result = await redis_ttl("nonexistent_key")
+            assert result == -2
+
+    @pytest.mark.asyncio
+    async def test_raises_unavailable_on_connection_error(self) -> None:
+        """Test that ttl raises RedisUnavailableError on connection errors."""
+        mock_redis = MagicMock()
+        mock_redis.ttl = AsyncMock(side_effect=OSError("Connection refused"))
+
+        with (
+            patch(_CLIENT_PATH, new_callable=AsyncMock, return_value=mock_redis),
+            pytest.raises(RedisUnavailableError, match="Redis connection failed"),
+        ):
+            await redis_ttl("test_key")
