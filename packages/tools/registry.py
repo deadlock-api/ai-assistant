@@ -17,6 +17,7 @@ from packages.tools.openapi.assets_api import (
 )
 from packages.tools.openapi.deadlock_api import (
     DeadlockAPICallTool,
+    DeadlockAPIInfoTool,
     DeadlockAPIToolGenerator,
 )
 from packages.tools.wiki import WikiGetPageTool, WikiSearchTool
@@ -59,6 +60,7 @@ class ToolRegistry:
         self._deadlock_api_generator: DeadlockAPIToolGenerator | None = None
         self._deadlock_api_tools: dict[str, OpenAPITool] | None = None
         self._deadlock_api_call_tool: DeadlockAPICallTool | None = None
+        self._deadlock_api_info_tool: DeadlockAPIInfoTool | None = None
         self._assets_api_generator: AssetsAPIToolGenerator | None = None
         self._assets_api_tools: dict[str, OpenAPITool] | None = None
         self._helper_tools: dict[str, BaseTool] | None = None
@@ -105,6 +107,15 @@ class ToolRegistry:
                 timeout=self._timeout,
             )
         return self._deadlock_api_call_tool
+
+    def _get_deadlock_api_info_tool(self) -> DeadlockAPIInfoTool:
+        """Lazy initialization of Deadlock API info tool."""
+        if self._deadlock_api_info_tool is None:
+            self._deadlock_api_info_tool = DeadlockAPIInfoTool(
+                sse_callback=self._sse_callback,
+                timeout=self._timeout,
+            )
+        return self._deadlock_api_info_tool
 
     def _get_assets_api_generator(self) -> AssetsAPIToolGenerator:
         """Lazy initialization of Assets API generator."""
@@ -191,6 +202,13 @@ class ToolRegistry:
                 self._all_tools[deadlock_api_call.name] = deadlock_api_call
             except Exception as e:
                 self._warnings.append(ToolLoadWarning("Deadlock API Call", str(e), e))
+
+            # Deadlock API info tool
+            try:
+                deadlock_api_info = self._get_deadlock_api_info_tool()
+                self._all_tools[deadlock_api_info.name] = deadlock_api_info
+            except Exception as e:
+                self._warnings.append(ToolLoadWarning("Deadlock API Info", str(e), e))
 
             # Assets API tools (dynamic from OpenAPI spec)
             try:

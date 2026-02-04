@@ -71,6 +71,85 @@ VALID_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
 # Base URL for the Deadlock API
 DEADLOCK_API_BASE_URL = "https://api.deadlock-api.com"
 
+# Deadlock API resource URLs
+DEADLOCK_API_INFO = {
+    "main_website": {
+        "url": "https://deadlock-api.com/",
+        "description": "Main website for the Deadlock API project",
+    },
+    "assets_api": {
+        "url": "https://assets.deadlock-api.com/",
+        "description": "API for game assets including images, sounds, hero portraits, item icons, and media files",
+        "openapi_spec": "https://assets.deadlock-api.com/openapi.json",
+    },
+    "data_api": {
+        "url": "https://api.deadlock-api.com/",
+        "description": "API for match data, player statistics, analytics, match histories, leaderboards, and more",
+        "openapi_spec": "https://api.deadlock-api.com/openapi.json",
+    },
+    "github": {
+        "url": "https://github.com/deadlock-api/",
+        "description": "GitHub organization with source code, documentation, and community contributions",
+    },
+    "discord": {
+        "url": "https://discord.gg/XMF9Xrgfqu",
+        "description": "Discord community server for support, discussions, and announcements",
+    },
+    "patreon": {
+        "url": "https://www.patreon.com/user?u=68961896",
+        "description": "Patreon page to support the Deadlock API project development",
+    },
+}
+
+
+class DeadlockAPIInfoTool(BaseTool):
+    """Tool that returns information about the Deadlock API resources.
+
+    Provides URLs and descriptions for the main website, assets API,
+    data API, and GitHub repository.
+    """
+
+    def __init__(
+        self,
+        sse_callback: SSECallback,
+        timeout: float = 60.0,
+    ) -> None:
+        super().__init__(sse_callback, timeout)
+
+    @property
+    def name(self) -> str:
+        return "deadlock_api_info"
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": (
+                "Use this tool when a user asks about the Deadlock API. "
+                "Returns URLs and descriptions for all Deadlock API resources."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        }
+
+    async def _run(self, **kwargs: Any) -> dict[str, Any]:
+        """Return information about the Deadlock API resources.
+
+        Args:
+            **kwargs: Unused, accepted for base class compatibility
+
+        Returns:
+            Dictionary containing resource names mapped to their URLs and descriptions
+        """
+        del kwargs  # Unused, no parameters for this tool
+        return DEADLOCK_API_INFO
+
+    def _create_result_summary(self, result: dict[str, Any]) -> str:
+        return f"Returned info for {len(result)} Deadlock API resources"
+
 
 class DeadlockAPICallTool(BaseTool):
     """Generic tool for calling any Deadlock API endpoint.
@@ -203,10 +282,12 @@ class DeadlockAPICallTool(BaseTool):
 __all__ = [
     "DeadlockAPIToolGenerator",
     "DeadlockAPICallTool",
+    "DeadlockAPIInfoTool",
     "create_deadlock_api_tools",
     "DEADLOCK_API_SPEC_URL",
     "DEADLOCK_API_TOOL_PREFIX",
     "DEADLOCK_API_BASE_URL",
     "DEADLOCK_API_EXCLUDED_OPERATIONS",
+    "DEADLOCK_API_INFO",
     "VALID_HTTP_METHODS",
 ]
