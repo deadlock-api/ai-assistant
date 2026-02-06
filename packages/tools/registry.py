@@ -18,6 +18,7 @@ from packages.tools.openapi.assets_api import (
 from packages.tools.openapi.deadlock_api import (
     DeadlockAPICallTool,
     DeadlockAPIInfoTool,
+    DeadlockAPISchemaFetchTool,
     DeadlockAPIToolGenerator,
 )
 from packages.tools.wiki import WikiGetPageTool, WikiSearchTool
@@ -61,6 +62,7 @@ class ToolRegistry:
         self._deadlock_api_tools: dict[str, OpenAPITool] | None = None
         self._deadlock_api_call_tool: DeadlockAPICallTool | None = None
         self._deadlock_api_info_tool: DeadlockAPIInfoTool | None = None
+        self._deadlock_api_schema_tool: DeadlockAPISchemaFetchTool | None = None
         self._assets_api_generator: AssetsAPIToolGenerator | None = None
         self._assets_api_tools: dict[str, OpenAPITool] | None = None
         self._helper_tools: dict[str, BaseTool] | None = None
@@ -116,6 +118,15 @@ class ToolRegistry:
                 timeout=self._timeout,
             )
         return self._deadlock_api_info_tool
+
+    def _get_deadlock_api_schema_tool(self) -> DeadlockAPISchemaFetchTool:
+        """Lazy initialization of Deadlock API schema fetch tool."""
+        if self._deadlock_api_schema_tool is None:
+            self._deadlock_api_schema_tool = DeadlockAPISchemaFetchTool(
+                sse_callback=self._sse_callback,
+                timeout=self._timeout,
+            )
+        return self._deadlock_api_schema_tool
 
     def _get_assets_api_generator(self) -> AssetsAPIToolGenerator:
         """Lazy initialization of Assets API generator."""
@@ -210,6 +221,13 @@ class ToolRegistry:
             except Exception as e:
                 self._warnings.append(ToolLoadWarning("Deadlock API Info", str(e), e))
 
+            # Deadlock API schema fetch tool
+            try:
+                deadlock_api_schema = self._get_deadlock_api_schema_tool()
+                self._all_tools[deadlock_api_schema.name] = deadlock_api_schema
+            except Exception as e:
+                self._warnings.append(ToolLoadWarning("Deadlock API Schema", str(e), e))
+
             # Assets API tools (dynamic from OpenAPI spec)
             try:
                 assets_api_tools = await self._get_assets_api_tools()
@@ -295,6 +313,10 @@ class ToolRegistry:
         # Close generic Deadlock API call tool
         if self._deadlock_api_call_tool is not None:
             await self._deadlock_api_call_tool.close()
+
+        # Close Deadlock API schema fetch tool
+        if self._deadlock_api_schema_tool is not None:
+            await self._deadlock_api_schema_tool.close()
 
         # Close Assets API generator
         if self._assets_api_generator is not None:

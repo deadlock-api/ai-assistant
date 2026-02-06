@@ -73,32 +73,62 @@ DEADLOCK_API_BASE_URL = "https://api.deadlock-api.com"
 
 # Deadlock API resource URLs
 DEADLOCK_API_INFO = {
+    "overview": {
+        "description": (
+            "The Deadlock API is a community-driven, open-source project providing comprehensive data access "
+            "for Valve's game Deadlock. It offers two main APIs: a Game Data API for match data, player stats, "
+            "leaderboards, and analytics; and an Assets API for hero portraits, item icons, ability images, "
+            "and other game media. Both APIs are free to use, well-documented via OpenAPI/Swagger specs, and "
+            "do not require authentication for most endpoints."
+        ),
+    },
     "main_website": {
         "url": "https://deadlock-api.com/",
-        "description": "Main website for the Deadlock API project",
-    },
-    "assets_api": {
-        "url": "https://assets.deadlock-api.com/",
-        "description": "API for game assets including images, sounds, hero portraits, item icons, and media files",
-        "openapi_spec": "https://assets.deadlock-api.com/openapi.json",
+        "description": (
+            "Main website for the Deadlock API project with overview, documentation links, and getting started guides"
+        ),
     },
     "data_api": {
         "url": "https://api.deadlock-api.com/",
-        "description": "API for match data, player statistics, analytics, match histories, leaderboards, and more",
+        "description": (
+            "Game Data API — provides match data, player statistics, hero win rates, item pick rates, "
+            "leaderboards, match histories, MMR tracking, and more. Endpoints include match details, "
+            "player profiles, hero/item stats, and ranked leaderboards."
+        ),
         "openapi_spec": "https://api.deadlock-api.com/openapi.json",
+        "docs": "https://api.deadlock-api.com/docs",
+    },
+    "assets_api": {
+        "url": "https://assets.deadlock-api.com/",
+        "description": (
+            "Assets API — provides game assets including hero portraits, ability icons, item icons, "
+            "hero stats, item stats, ability details, and raw game data. Use this to get hero/item metadata, "
+            "images, and detailed game balance information."
+        ),
+        "openapi_spec": "https://assets.deadlock-api.com/openapi.json",
+        "docs": "https://assets.deadlock-api.com/docs",
     },
     "github": {
         "url": "https://github.com/deadlock-api/",
-        "description": "GitHub organization with source code, documentation, and community contributions",
+        "description": (
+            "GitHub organization with source code, documentation, and community contributions "
+            "for all Deadlock API projects"
+        ),
     },
     "discord": {
         "url": "https://discord.gg/XMF9Xrgfqu",
-        "description": "Discord community server for support, discussions, and announcements",
+        "description": "Discord community server for API support, bug reports, feature requests, and announcements",
     },
     "patreon": {
         "url": "https://www.patreon.com/user?u=68961896",
-        "description": "Patreon page to support the Deadlock API project development",
+        "description": "Patreon page to support ongoing Deadlock API development and server costs",
     },
+}
+
+# OpenAPI spec URLs for schema fetching
+OPENAPI_SPEC_URLS: dict[str, str] = {
+    "data": "https://api.deadlock-api.com/openapi.json",
+    "assets": "https://assets.deadlock-api.com/openapi.json",
 }
 
 
@@ -149,6 +179,101 @@ class DeadlockAPIInfoTool(BaseTool):
 
     def _create_result_summary(self, result: dict[str, Any]) -> str:
         return f"Returned info for {len(result)} Deadlock API resources"
+
+
+class DeadlockAPISchemaFetchTool(BaseTool):
+    """Tool that fetches OpenAPI schemas for the Deadlock APIs.
+
+    Allows the agent to retrieve the full OpenAPI specification for either
+    the Game Data API or the Assets API, enabling it to answer detailed
+    questions about available endpoints, parameters, and response formats.
+    """
+
+    def __init__(
+        self,
+        sse_callback: SSECallback,
+        timeout: float = 60.0,
+    ) -> None:
+        super().__init__(sse_callback, timeout)
+        self._http_client: httpx.AsyncClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "deadlock_api_schema"
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._http_client
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": (
+                "Fetch the OpenAPI schema for a Deadlock API. Use this to answer questions about "
+                "available API endpoints, request parameters, response formats, and how to use the API. "
+                "Pass api='data' for the Game Data API (matches, players, leaderboards) or "
+                "api='assets' for the Assets API (heroes, items, images, game data)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "api": {
+                        "type": "string",
+                        "enum": ["data", "assets"],
+                        "description": (
+                            "Which API schema to fetch: "
+                            "'data' for the Game Data API (api.deadlock-api.com) or "
+                            "'assets' for the Assets API (assets.deadlock-api.com)"
+                        ),
+                    },
+                },
+                "required": ["api"],
+            },
+        }
+
+    @retry(max_attempts=3, base_delay=1.0)
+    async def _run(self, api: str) -> dict[str, Any]:
+        """Fetch the OpenAPI schema for the specified API.
+
+        Args:
+            api: Which API to fetch the schema for ('data' or 'assets')
+
+        Returns:
+            The OpenAPI specification as a dictionary
+
+        Raises:
+            ValueError: If api is not 'data' or 'assets'
+            OpenAPIConnectionError: If the schema cannot be fetched
+        """
+        if api not in OPENAPI_SPEC_URLS:
+            raise ValueError(f"Invalid API name: {api}. Must be one of: {', '.join(sorted(OPENAPI_SPEC_URLS))}")
+
+        spec_url = OPENAPI_SPEC_URLS[api]
+
+        try:
+            client = await self._get_client()
+            response = await client.get(spec_url)
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as e:
+            raise OpenAPIConnectionError(f"Failed to fetch {api} API schema: HTTP {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            raise OpenAPIConnectionError(f"Network error fetching {api} API schema: {e}") from e
+
+    def _create_result_summary(self, result: dict[str, Any]) -> str:
+        info = result.get("info", {})
+        title = info.get("title", "Unknown API")
+        paths = result.get("paths", {})
+        return f"Schema for {title}: {len(paths)} endpoints"
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
 
 
 class DeadlockAPICallTool(BaseTool):
@@ -283,11 +408,13 @@ __all__ = [
     "DeadlockAPIToolGenerator",
     "DeadlockAPICallTool",
     "DeadlockAPIInfoTool",
+    "DeadlockAPISchemaFetchTool",
     "create_deadlock_api_tools",
     "DEADLOCK_API_SPEC_URL",
     "DEADLOCK_API_TOOL_PREFIX",
     "DEADLOCK_API_BASE_URL",
     "DEADLOCK_API_EXCLUDED_OPERATIONS",
     "DEADLOCK_API_INFO",
+    "OPENAPI_SPEC_URLS",
     "VALID_HTTP_METHODS",
 ]

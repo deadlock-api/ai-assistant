@@ -538,9 +538,7 @@ class TestFetchUserIdentity:
                         },
                         "relationships": {
                             "campaign": {"data": {"id": "test-campaign-id"}},
-                            "currently_entitled_tiers": {
-                                "data": [{"type": "tier", "id": tier.tier_id}]
-                            },
+                            "currently_entitled_tiers": {"data": [{"type": "tier", "id": tier.tier_id}]},
                         },
                     }
                 ],
