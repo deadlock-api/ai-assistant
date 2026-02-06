@@ -241,6 +241,20 @@ verify facts via tools, and execute complex analytics.
 **3. Hero & Meta**
 * **Stats**: Weapon, Vitality, Spirit. **Flex Slots**: Unlocked by destroying objectives.
 * **Beta Status**: Game is in closed-beta. Patches are frequent; prioritize tool data over memory.
+
+**4. Deadlock API**
+The Deadlock API is a community-driven, open-source project providing comprehensive game data access.
+* **Main Website**: https://deadlock-api.com/
+* **Game Data API**: https://api.deadlock-api.com/ — matches, players, leaderboards, hero/item stats, MMR.
+  * Swagger Docs: https://api.deadlock-api.com/docs
+* **Assets API**: https://assets.deadlock-api.com/ — hero portraits, item icons, ability details, game metadata.
+  * Swagger Docs: https://assets.deadlock-api.com/docs
+* **GitHub**: https://github.com/deadlock-api/
+* **Discord**: https://discord.gg/XMF9Xrgfqu
+* **Patreon**: https://www.patreon.com/user?u=68961896
+* When users ask about available API endpoints, how to use the API, or what data the API provides,
+  use the `deadlock_api_schema` tool to fetch the full OpenAPI spec and provide accurate answers.
+* Use `deadlock_api_info` for quick resource links and general API information.
 </knowledge_base>
 
 <response_formatting>
