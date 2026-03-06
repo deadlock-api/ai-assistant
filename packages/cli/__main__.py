@@ -415,13 +415,20 @@ def validate_configuration() -> str | None:
     Returns:
         Error message if validation fails, None if successful.
     """
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+    if (
+        not os.environ.get("ANTHROPIC_API_KEY")
+        and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        and not os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    ):
         return (
-            "Error: ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN environment variable is required.\n\n"
+            "Error: ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or ANTHROPIC_AUTH_TOKEN"
+            " environment variable is required.\n\n"
             "Please set one before running the assistant:\n"
             "  export ANTHROPIC_API_KEY=your-api-key\n"
             "  or\n"
-            "  export CLAUDE_CODE_OAUTH_TOKEN=your-oauth-token"
+            "  export CLAUDE_CODE_OAUTH_TOKEN=your-oauth-token\n"
+            "  or\n"
+            "  export ANTHROPIC_AUTH_TOKEN=your-auth-token  (for OpenRouter)"
         )
     return None
 
