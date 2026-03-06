@@ -23,6 +23,7 @@ from packages.ai_assistant.agent import (
     AgentRateLimitError,
     AgentRetryExhaustedError,
     AgentTimeoutError,
+    DEFAULT_MODEL,
     DeadlockAgentClient,
     StreamChunk,
     _build_prompt_with_history,
@@ -81,6 +82,11 @@ class TestValidateConfiguration:
         ):
             validate_configuration()  # Should not raise
 
+    def test_with_auth_token(self) -> None:
+        """Validation passes when ANTHROPIC_AUTH_TOKEN is set (OpenRouter)."""
+        with patch.dict("os.environ", {"ANTHROPIC_AUTH_TOKEN": "or-test-token"}, clear=True):
+            validate_configuration()  # Should not raise
+
     @pytest.mark.usefixtures("mock_env_without_api_key")
     def test_without_any_auth(self) -> None:
         """Validation fails when no authentication is set."""
@@ -88,6 +94,7 @@ class TestValidateConfiguration:
             validate_configuration()
         assert "ANTHROPIC_API_KEY" in str(exc_info.value)
         assert "CLAUDE_CODE_OAUTH_TOKEN" in str(exc_info.value)
+        assert "ANTHROPIC_AUTH_TOKEN" in str(exc_info.value)
 
 
 class TestGetAgentConfig:
@@ -97,11 +104,18 @@ class TestGetAgentConfig:
         """Default config uses expected values."""
         with patch.dict("os.environ", {}, clear=True):
             config = get_agent_config()
+            assert config.model == DEFAULT_MODEL
             assert config.system_prompt == DEFAULT_SYSTEM_PROMPT
             assert config.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
             assert config.max_retries == DEFAULT_MAX_RETRIES
             assert config.initial_backoff == DEFAULT_INITIAL_BACKOFF
             assert config.backoff_multiplier == DEFAULT_BACKOFF_MULTIPLIER
+
+    def test_custom_model_from_env(self) -> None:
+        """Model can be configured via environment variable."""
+        with patch.dict("os.environ", {"AGENT_MODEL": "claude-opus-4-5"}):
+            config = get_agent_config()
+            assert config.model == "claude-opus-4-5"
 
     def test_custom_timeout_from_env(self) -> None:
         """Timeout can be configured via environment variable."""

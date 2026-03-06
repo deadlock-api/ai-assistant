@@ -262,7 +262,7 @@ The Deadlock API is a community-driven, open-source project providing comprehens
 * **Tone**: Warm, confident, never fawning.
 </response_formatting>
 """
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 # Default timeout in seconds
 DEFAULT_TIMEOUT_SECONDS = 600
@@ -325,19 +325,28 @@ def get_agent_config() -> AgentConfig:
     Returns:
         AgentConfig with values from environment or defaults.
     """
+    model = os.environ.get("AGENT_MODEL", DEFAULT_MODEL)
     timeout = float(os.environ.get("AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
     max_turns = int(os.environ.get("AGENT_MAX_TURNS", 100))
-    return AgentConfig(timeout_seconds=timeout, max_turns=max_turns)
+    return AgentConfig(model=model, timeout_seconds=timeout, max_turns=max_turns)
 
 
 def validate_configuration() -> None:
     """Validate that required configuration is present.
 
+    Supports direct Anthropic API keys, Claude Code OAuth tokens, and
+    OpenRouter via ANTHROPIC_AUTH_TOKEN (with ANTHROPIC_API_KEY set to empty string).
+
     Raises:
-        AgentConfigurationError: If neither ANTHROPIC_API_KEY nor CLAUDE_CODE_OAUTH_TOKEN is set.
+        AgentConfigurationError: If no valid authentication is configured.
     """
-    if not os.environ.get("ANTHROPIC_API_KEY") and not os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
-        raise AgentConfigurationError("ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN environment variable is required")
+    has_api_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    has_oauth_token = bool(os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"))
+    has_auth_token = bool(os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+    if not has_api_key and not has_oauth_token and not has_auth_token:
+        raise AgentConfigurationError(
+            "ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or ANTHROPIC_AUTH_TOKEN environment variable is required"
+        )
 
 
 def _is_retriable_error(error: Exception) -> bool:

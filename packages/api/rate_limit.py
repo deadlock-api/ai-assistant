@@ -317,7 +317,6 @@ async def check_rate_limits(
         api_key = api_key.strip() or None  # Treat empty/whitespace as no API key
 
     # Track API key rate limit results if present
-    api_key_count = 0
     api_key_ttl = 0
     api_key_remaining = 0
 
@@ -341,7 +340,6 @@ async def check_rate_limits(
     patron_rate_limit = getattr(request.state, "patron_rate_limit", None)
 
     # Track patron rate limit results if authenticated
-    patron_count = 0
     patron_ttl = 0
     patron_remaining = 0
 
@@ -360,7 +358,6 @@ async def check_rate_limits(
             )
 
     # Check per-IP limit (only for non-patron requests)
-    ip_count = 0
     ip_ttl = 0
     ip_remaining = 0
 
