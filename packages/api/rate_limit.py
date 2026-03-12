@@ -489,8 +489,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         config = get_rate_limit_config()
 
-        # Skip rate limiting if disabled
-        if not config.enabled:
+        # Skip rate limiting if disabled or in dev mode
+        if not config.enabled or os.environ.get("DEV_MODE", "false").lower() == "true":
             return await call_next(request)
 
         # Skip rate limiting for public paths
