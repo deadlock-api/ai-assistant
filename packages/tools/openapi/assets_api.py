@@ -422,8 +422,9 @@ class AssetsAPICallTool(BaseTool):
             "name": self.name,
             "description": (
                 "Call any Deadlock Assets API endpoint (assets.deadlock-api.com). "
-                "Use deadlock_api_list_endpoints with api='assets' to discover available endpoints, "
-                "and deadlock_api_endpoint_details to get parameter details for a specific endpoint."
+                "This API has hero details, item details, ability info, and game metadata. "
+                "Use this (not deadlock_api_call) for /v2/heroes/ and /v2/items/ endpoints. "
+                "Use deadlock_api_list_endpoints with api='assets' to discover available endpoints."
             ),
             "parameters": {
                 "type": "object",

@@ -255,6 +255,12 @@ The Deadlock API is a community-driven, open-source project providing comprehens
 * **GitHub**: https://github.com/deadlock-api/
 * **Discord**: https://discord.gg/XMF9Xrgfqu
 * **Patreon**: https://www.patreon.com/user?u=68961896
+* **Tool routing**: The two APIs have different endpoints:
+  * `deadlock_api_call` → Data API (matches, players, leaderboards, stats). No hero/item detail endpoints.
+  * `assets_api_call` → Assets API (hero details, item details, abilities, metadata). Has /v2/heroes/ and /v2/items/.
+  * For hero lookups, prefer `get_hero_name` or `get_hero_mapping`.
+  * For item lookups, prefer `get_item_name` or `get_item_mapping`.
+  * NEVER call /v2/heroes/ or /v2/items/ via `deadlock_api_call` — those endpoints only exist on the Assets API.
 * When users ask about available API endpoints, use `deadlock_api_list_endpoints` to discover endpoints,
   then `deadlock_api_endpoint_details` to get parameter details for specific endpoints.
 * Use `deadlock_api_info` for quick resource links and general API information.

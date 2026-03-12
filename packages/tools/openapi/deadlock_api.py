@@ -469,8 +469,10 @@ class DeadlockAPICallTool(BaseTool):
             "name": self.name,
             "description": (
                 "Call any Deadlock Game Data API endpoint (api.deadlock-api.com). "
-                "Use deadlock_api_list_endpoints with api='data' to discover available endpoints, "
-                "and deadlock_api_endpoint_details to get parameter details for a specific endpoint."
+                "This API has matches, players, leaderboards, and stats endpoints. "
+                "It does NOT have hero or item detail endpoints — use assets_api_call, "
+                "get_hero_name, or get_item_name for hero/item data instead. "
+                "Use deadlock_api_list_endpoints with api='data' to discover available endpoints."
             ),
             "parameters": {
                 "type": "object",
