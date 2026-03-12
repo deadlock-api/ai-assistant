@@ -78,7 +78,7 @@ async def redis_ping() -> bool:
         client = await get_redis_client()
         result = await client.ping()  # type: ignore[misc]
         return result is True
-    except (RedisUnavailableError, RedisConnectionError, OSError):
+    except RedisUnavailableError, RedisConnectionError, OSError:
         return False
     except Exception:
         return False

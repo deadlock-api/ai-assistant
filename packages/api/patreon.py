@@ -394,7 +394,7 @@ async def get_patreon_session(token: str) -> PatreonSession | None:
     try:
         data = json.loads(session_json)
         return PatreonSession.from_dict(data)
-    except (json.JSONDecodeError, KeyError, ValueError):
+    except json.JSONDecodeError, KeyError, ValueError:
         # Invalid session data, treat as not found
         return None
 

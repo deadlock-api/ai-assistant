@@ -69,7 +69,7 @@ async def run_console_cli() -> None:
     while True:
         try:
             user_input = input("You: ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print("\nGoodbye!")
             break
 
