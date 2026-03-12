@@ -34,10 +34,45 @@ SENSITIVE_HEADERS = frozenset(
 
 
 class JSONFormatter(logging.Formatter):
-    """Custom formatter that outputs logs as JSON lines."""
+    """Custom formatter that outputs logs as JSON lines.
+
+    Automatically includes any extra fields passed via logger calls,
+    enabling structured logging without hardcoding field names.
+    """
+
+    # Fields that are part of the standard LogRecord and should not be included as extras
+    _STANDARD_FIELDS = frozenset(
+        {
+            "name",
+            "msg",
+            "args",
+            "created",
+            "relativeCreated",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "pathname",
+            "filename",
+            "module",
+            "levelno",
+            "levelname",
+            "msecs",
+            "process",
+            "processName",
+            "thread",
+            "threadName",
+            "taskName",
+            "message",
+        }
+    )
 
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON.
+
+        All extra fields passed via ``logger.info("msg", extra={...})``
+        are automatically included in the JSON output.
 
         Args:
             record: The log record to format.
@@ -52,19 +87,16 @@ class JSONFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # Add extra fields if present
-        if hasattr(record, "request_id"):
-            log_entry["request_id"] = record.request_id
-        if hasattr(record, "method"):
-            log_entry["method"] = record.method
-        if hasattr(record, "path"):
-            log_entry["path"] = record.path
-        if hasattr(record, "status_code"):
-            log_entry["status_code"] = record.status_code
-        if hasattr(record, "duration_ms"):
-            log_entry["duration_ms"] = record.duration_ms
+        # Include all extra fields automatically
+        for key, value in record.__dict__.items():
+            if key not in self._STANDARD_FIELDS and key not in log_entry:
+                log_entry[key] = value
 
-        return json.dumps(log_entry)
+        # Add exception info if present
+        if record.exc_info and record.exc_info[1] is not None:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        return json.dumps(log_entry, default=str)
 
 
 def configure_logging() -> logging.Logger:

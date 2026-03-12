@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 
 from redis.asyncio import ConnectionPool, Redis
 from redis.asyncio.connection import ConnectionError as RedisConnectionError
+
+logger = logging.getLogger("deadlock_assistant")
 
 # Module-level connection pool and client
 _pool: ConnectionPool | None = None
@@ -42,6 +45,7 @@ async def get_redis_client() -> Redis:
 
     redis_url = get_redis_url()
     if not redis_url:
+        logger.error("Redis connection failed: REDIS_URL not set")
         raise RedisUnavailableError("REDIS_URL environment variable is not set")
 
     # Create connection pool with reasonable defaults for concurrent requests
@@ -51,6 +55,7 @@ async def get_redis_client() -> Redis:
         decode_responses=True,
     )
     _client = Redis(connection_pool=_pool)
+    logger.info("Redis client initialized")
     return _client
 
 
@@ -105,6 +110,7 @@ async def redis_get(key: str) -> str | None:
     except RedisUnavailableError:
         raise
     except (RedisConnectionError, OSError) as e:
+        logger.error("Redis GET failed", extra={"key": key, "error": str(e)})
         raise RedisUnavailableError(f"Redis connection failed: {e}") from e
 
 
@@ -130,6 +136,7 @@ async def redis_set(key: str, value: str, ex: int | None = None) -> bool:
     except RedisUnavailableError:
         raise
     except (RedisConnectionError, OSError) as e:
+        logger.error("Redis SET failed", extra={"key": key, "error": str(e)})
         raise RedisUnavailableError(f"Redis connection failed: {e}") from e
 
 

@@ -4,6 +4,7 @@
 # Supports global, per-IP, and per-API key rate limits.
 
 import hashlib
+import logging
 import os
 from dataclasses import dataclass
 
@@ -18,6 +19,8 @@ from packages.integrations.redis_client import (
     redis_incr,
     redis_ttl,
 )
+
+logger = logging.getLogger("deadlock_assistant")
 
 # Paths that bypass rate limiting
 PUBLIC_PATHS = {
@@ -501,10 +504,20 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         try:
             result = await check_rate_limits(request, config)
         except RedisUnavailableError:
+            logger.warning("Rate limit check failed: Redis unavailable, failing open", extra={"path": request.url.path})
             # Fail open - allow request through if Redis is unavailable
             return await call_next(request)
 
         if not result.allowed:
+            logger.warning(
+                "Rate limit exceeded",
+                extra={
+                    "limit_type": result.limit_type,
+                    "limit": result.limit,
+                    "reset_seconds": result.reset_seconds,
+                    "path": request.url.path,
+                },
+            )
             return _rate_limit_response(result)
 
         # Proceed with request

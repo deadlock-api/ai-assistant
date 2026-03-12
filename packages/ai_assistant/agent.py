@@ -575,6 +575,7 @@ class DeadlockAgentClient:
         self._client = ClaudeSDKClient(options=options)
         await self._client.connect()
         self._connected = True
+        logger.info("Agent connected", extra={"model": self.config.model})
 
     async def disconnect(self) -> None:
         """Disconnect from Claude.
@@ -642,10 +643,20 @@ class DeadlockAgentClient:
                 raise AgentTimeoutError(f"Request timed out after {self.config.timeout_seconds} seconds") from e
             except (ClaudeSDKError, CLIConnectionError, ProcessError) as e:
                 if not _is_retriable_error(e):
+                    logger.error("Non-retriable agent error", extra={"error": str(e), "error_type": type(e).__name__})
                     raise _wrap_non_retriable_error(e) from e
 
                 last_error = e
                 if attempt < self.config.max_retries:
+                    logger.warning(
+                        "Agent request failed, retrying",
+                        extra={
+                            "attempt": attempt + 1,
+                            "max_retries": self.config.max_retries,
+                            "backoff_s": backoff,
+                            "error": str(e),
+                        },
+                    )
                     await asyncio.sleep(backoff)
                     backoff *= self.config.backoff_multiplier
                 else:

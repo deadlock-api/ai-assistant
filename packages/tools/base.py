@@ -2,11 +2,15 @@
 
 import asyncio
 import functools
+import logging
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any
 
 from packages.api.models import ChatToolEndEvent, ChatToolStartEvent
+
+logger = logging.getLogger("deadlock_assistant")
 
 
 def retry(
@@ -108,6 +112,9 @@ class BaseTool(ABC):
         start_event = ChatToolStartEvent(tool_name=self.name, arguments=kwargs)
         self._sse_callback(start_event)
 
+        logger.debug("Tool executing", extra={"tool": self.name, "arguments": str(kwargs)[:200]})
+        start_time = time.perf_counter()
+
         success = False
         result_summary = ""
         try:
@@ -122,5 +129,11 @@ class BaseTool(ABC):
             result_summary = f"Error: {e!s}"
             raise
         finally:
+            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            log_extra = {"tool": self.name, "success": success, "duration_ms": duration_ms}
+            if success:
+                logger.info("Tool completed", extra=log_extra)
+            else:
+                logger.warning("Tool failed", extra={**log_extra, "result": result_summary[:200]})
             end_event = ChatToolEndEvent(tool_name=self.name, success=success, result_summary=result_summary)
             self._sse_callback(end_event)

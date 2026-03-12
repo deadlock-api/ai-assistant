@@ -2,6 +2,7 @@
 # Supports API key, Patreon OAuth2, and Cloudflare Turnstile authentication
 
 import hashlib
+import logging
 import os
 
 import httpx
@@ -17,6 +18,8 @@ from packages.api.patreon import (
     get_patreon_session,
 )
 from packages.integrations.redis_client import RedisUnavailableError, redis_exists, redis_set
+
+logger = logging.getLogger("deadlock_assistant")
 
 # Paths that bypass authentication
 PUBLIC_PATHS = {
@@ -169,6 +172,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             valid_keys = get_valid_api_keys()
             if api_key in valid_keys:
                 return await call_next(request)
+            logger.warning("Auth failed: invalid API key", extra={"path": request.url.path})
             return _unauthorized_response()
 
         # Try Patreon token authentication
@@ -180,12 +184,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return _unauthorized_response("Patreon authentication temporarily unavailable")
 
             if session is None:
+                logger.warning("Auth failed: invalid Patreon session", extra={"path": request.url.path})
                 return _unauthorized_response("Invalid or expired Patreon session")
 
             # Check if access token is expiring soon and refresh if needed
             try:
                 session = await check_and_refresh_token(patreon_token, session)
             except PatreonAPIError as e:
+                logger.warning("Patreon token refresh failed", extra={"error": str(e), "code": e.code})
                 # Token refresh failed, session was deleted
                 return _unauthorized_response_with_code(
                     "Patreon token refresh failed. Please re-authenticate.",
@@ -218,9 +224,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             is_valid = await verify_turnstile_token(turnstile_token, secret_key)
             if is_valid:
                 return await call_next(request)
+            logger.warning("Auth failed: Turnstile verification rejected", extra={"path": request.url.path})
             return _unauthorized_response("Turnstile verification failed")
 
         # No authentication provided
+        logger.debug("Auth failed: no credentials provided", extra={"path": request.url.path})
         return _unauthorized_response()
 
 

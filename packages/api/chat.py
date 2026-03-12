@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter
@@ -43,6 +44,8 @@ from packages.integrations.sse_cache import (
     replay_cached_stream,
 )
 from packages.tools.registry import ToolRegistry
+
+logger = logging.getLogger("deadlock_assistant")
 
 router = APIRouter()
 
@@ -147,18 +150,25 @@ async def _generate_sse_stream(
         yield end_event
 
     except AgentConfigurationError as e:
+        logger.error("Agent config error", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_CONFIGURATION_ERROR"))
     except AgentTimeoutError as e:
+        logger.error("Agent timeout during chat", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_TIMEOUT"))
     except AgentAuthError as e:
+        logger.error("Agent auth error during chat", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_AUTH_ERROR"))
     except AgentRateLimitError as e:
+        logger.warning("Agent rate limited during chat", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_RATE_LIMIT"))
     except AgentRetryExhaustedError as e:
+        logger.error("Agent retries exhausted during chat", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_RETRY_EXHAUSTED"))
     except AgentError as e:
+        logger.error("Agent error during chat", extra={"conversation_id": conversation_id, "error": str(e)})
         yield serialize_sse_event(ChatErrorEvent(error=str(e), code="AGENT_ERROR"))
     except RedisUnavailableError:
+        logger.error("Redis unavailable during conversation save", extra={"conversation_id": conversation_id})
         yield serialize_sse_event(ChatErrorEvent(error="Failed to save conversation history", code="REDIS_ERROR"))
     finally:
         # Clean up tool registry connections
@@ -214,6 +224,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     Returns:
         SSE stream with chat events.
     """
+    logger.info("Chat request received", extra={"conversation_id": request.conversation_id or "new"})
+
     # Get or create conversation
     if request.conversation_id:
         conversation_id = request.conversation_id
@@ -245,11 +257,13 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     try:
         cached_events = await get_cached_sse_stream(cache_key)
         if cached_events is not None:
+            logger.info("SSE cache hit", extra={"conversation_id": conversation_id, "cache_key": cache_key[:32]})
             return StreamingResponse(
                 replay_cached_stream(cached_events),
                 media_type="text/event-stream",
             )
     except RedisUnavailableError:
+        logger.warning("SSE cache lookup failed: Redis unavailable", extra={"conversation_id": conversation_id})
         # Cache lookup failed, proceed without cache
         pass
 

@@ -1,6 +1,7 @@
 # Deadlock AI Assistant - Tool Registry
 # Central registry combining all toolsets for the agent
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,6 +23,8 @@ from packages.tools.openapi.deadlock_api import (
     DeadlockAPIListEndpointsTool,
 )
 from packages.tools.wiki import WikiGetPageTool, WikiSearchTool
+
+logger = logging.getLogger("deadlock_assistant")
 
 
 @dataclass
@@ -236,6 +239,17 @@ class ToolRegistry:
                 self._all_tools.update(self._get_datetime_tools())
             except Exception as e:
                 self._warnings.append(ToolLoadWarning("DateTime", str(e), e))
+
+            # Log results
+            for warning in self._warnings:
+                logger.warning(
+                    "Tool loading failed",
+                    extra={"toolset": warning.toolset, "error": warning.message},
+                )
+            logger.info(
+                "Tool registry initialized",
+                extra={"tool_count": len(self._all_tools), "failed_count": len(self._warnings)},
+            )
 
         return self._all_tools
 

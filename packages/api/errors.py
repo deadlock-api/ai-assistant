@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 from contextvars import ContextVar
 from enum import StrEnum
@@ -24,6 +25,8 @@ from packages.ai_assistant.agent import (
     AgentTimeoutError,
 )
 from packages.integrations.redis_client import RedisUnavailableError
+
+logger = logging.getLogger("deadlock_assistant")
 
 # Context variable to store request ID for the current request
 request_id_context: ContextVar[str] = ContextVar("request_id", default="")
@@ -138,6 +141,8 @@ async def validation_exception_handler(
     Returns:
         Structured error response with validation details.
     """
+    logger.warning("Validation error", extra={"request_id": get_request_id(), "errors": str(exc.errors())})
+
     # Extract validation error details without exposing internal structure
     error_messages = []
     for error in exc.errors():
@@ -170,6 +175,12 @@ async def agent_error_handler(
     Returns:
         Structured error response with appropriate status code.
     """
+    logger.error(
+        "Agent error: %s",
+        exc,
+        extra={"request_id": get_request_id(), "error_type": type(exc).__name__},
+    )
+
     # Determine status code based on error type
     if isinstance(exc, AgentAuthError):
         return create_error_response(
@@ -211,17 +222,19 @@ async def agent_error_handler(
 
 async def redis_error_handler(
     request: Request,  # noqa: ARG001
-    exc: RedisUnavailableError,  # noqa: ARG001
+    exc: RedisUnavailableError,
 ) -> JSONResponse:
     """Handle Redis unavailability errors.
 
     Args:
         request: The FastAPI request (unused but required by signature).
-        exc: The Redis exception (unused but required by signature).
+        exc: The Redis exception.
 
     Returns:
         Structured error response indicating service unavailability.
     """
+    logger.error("Redis unavailable: %s", exc, extra={"request_id": get_request_id()})
+
     return create_error_response(
         error="Storage service temporarily unavailable",
         code=ErrorCode.REDIS_ERROR,
@@ -231,7 +244,7 @@ async def redis_error_handler(
 
 async def generic_exception_handler(
     request: Request,  # noqa: ARG001
-    exc: Exception,  # noqa: ARG001
+    exc: Exception,
 ) -> JSONResponse:
     """Handle all unhandled exceptions.
 
@@ -239,11 +252,13 @@ async def generic_exception_handler(
 
     Args:
         request: The FastAPI request (unused but required by signature).
-        exc: The exception (unused to avoid exposing details).
+        exc: The exception.
 
     Returns:
         Generic error response with 500 status code.
     """
+    logger.exception("Unhandled exception", extra={"request_id": get_request_id(), "error_type": type(exc).__name__})
+
     return create_error_response(
         error="An internal error occurred",
         code=ErrorCode.INTERNAL_ERROR,
