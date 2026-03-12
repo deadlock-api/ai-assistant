@@ -387,6 +387,135 @@ class GetItemNameTool(BaseTool):
             self._http_client = None
 
 
+# Valid HTTP methods for the generic API caller
+VALID_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH"})
+
+
+class AssetsAPICallTool(BaseTool):
+    """Generic tool for calling any Deadlock Assets API endpoint.
+
+    Replaces individual auto-generated endpoint tools with a single generic caller
+    to reduce token usage from tool definitions.
+    """
+
+    def __init__(
+        self,
+        sse_callback: SSECallback,
+        timeout: float = 60.0,
+    ) -> None:
+        super().__init__(sse_callback, timeout)
+        self._http_client: httpx.AsyncClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "assets_api_call"
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._http_client
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": (
+                "Call any Deadlock Assets API endpoint (assets.deadlock-api.com). "
+                "Use deadlock_api_list_endpoints with api='assets' to discover available endpoints, "
+                "and deadlock_api_endpoint_details to get parameter details for a specific endpoint."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "enum": list(VALID_HTTP_METHODS),
+                        "description": "HTTP method (GET, POST, PUT, DELETE, PATCH)",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "API path starting with / (e.g., /v2/heroes/17)",
+                    },
+                    "query_params": {
+                        "type": "object",
+                        "description": "Query parameters as key-value pairs",
+                    },
+                    "body": {
+                        "type": "object",
+                        "description": "Request body for POST/PUT/PATCH requests",
+                    },
+                },
+                "required": ["method", "path"],
+            },
+        }
+
+    @retry(max_attempts=3, base_delay=1.0)
+    async def _run(
+        self,
+        method: str,
+        path: str,
+        query_params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Execute the API call.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+            path: API path starting with /
+            query_params: Optional query parameters
+            body: Optional request body
+
+        Returns:
+            API response as dictionary
+
+        Raises:
+            ValueError: If method or path is invalid
+            OpenAPIConnectionError: If API call fails
+        """
+        method_upper = method.upper()
+        if method_upper not in VALID_HTTP_METHODS:
+            raise ValueError(f"Invalid HTTP method: {method}. Must be one of: {', '.join(sorted(VALID_HTTP_METHODS))}")
+
+        if not path.startswith("/"):
+            raise ValueError(f"Path must start with /: {path}")
+
+        url = ASSETS_API_BASE_URL + path
+
+        try:
+            client = await self._get_client()
+            response = await client.request(
+                method=method_upper,
+                url=url,
+                params=query_params,
+                json=body,
+            )
+            response.raise_for_status()
+
+            try:
+                return response.json()
+            except Exception:
+                return {"content": response.text}
+
+        except httpx.HTTPStatusError as e:
+            raise OpenAPIConnectionError(f"API error: HTTP {e.response.status_code} - {e.response.text[:200]}") from e
+        except httpx.RequestError as e:
+            raise OpenAPIConnectionError(f"Network error: {e}") from e
+
+    def _create_result_summary(self, result: dict[str, Any]) -> str:
+        if isinstance(result, dict):
+            if "error" in result:
+                return f"Error: {result['error']}"
+            return f"Response with {len(result)} fields"
+        return str(result)[:100]
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
+
+
 async def create_assets_api_tools(
     sse_callback: SSECallback,
     timeout: float = 60.0,
@@ -408,6 +537,7 @@ async def create_assets_api_tools(
 
 
 __all__ = [
+    "AssetsAPICallTool",
     "AssetsAPIToolGenerator",
     "GetHeroMappingTool",
     "GetHeroNameTool",

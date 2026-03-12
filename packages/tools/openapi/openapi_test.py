@@ -23,8 +23,9 @@ from packages.tools.openapi.deadlock_api import (
     OPENAPI_SPEC_URLS,
     VALID_HTTP_METHODS,
     DeadlockAPICallTool,
+    DeadlockAPIEndpointDetailsTool,
     DeadlockAPIInfoTool,
-    DeadlockAPISchemaFetchTool,
+    DeadlockAPIListEndpointsTool,
     DeadlockAPIToolGenerator,
 )
 
@@ -1434,8 +1435,8 @@ class TestDeadlockAPIInfoTool:
         assert f"{len(DEADLOCK_API_INFO)}" in summary
 
 
-class TestDeadlockAPISchemaFetchTool:
-    """Tests for DeadlockAPISchemaFetchTool."""
+class TestDeadlockAPIListEndpointsTool:
+    """Tests for DeadlockAPIListEndpointsTool."""
 
     @pytest.fixture
     def sse_events(self) -> list[ChatToolStartEvent | ChatToolEndEvent]:
@@ -1452,29 +1453,35 @@ class TestDeadlockAPISchemaFetchTool:
         return callback
 
     @pytest.fixture
-    def schema_tool(self, sse_callback: Any) -> DeadlockAPISchemaFetchTool:
-        """Create DeadlockAPISchemaFetchTool instance."""
-        return DeadlockAPISchemaFetchTool(sse_callback=sse_callback, timeout=10.0)
+    def list_tool(self, sse_callback: Any) -> DeadlockAPIListEndpointsTool:
+        """Create DeadlockAPIListEndpointsTool instance."""
+        return DeadlockAPIListEndpointsTool(sse_callback=sse_callback, timeout=10.0)
 
-    def test_name_property(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
+    def test_name_property(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
         """Test name property returns correct name."""
-        assert schema_tool.name == "deadlock_api_schema"
+        assert list_tool.name == "deadlock_api_list_endpoints"
 
-    def test_get_definition(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
+    def test_get_definition(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
         """Test get_definition returns correct structure."""
-        definition = schema_tool.get_definition()
-        assert definition["name"] == "deadlock_api_schema"
+        definition = list_tool.get_definition()
+        assert definition["name"] == "deadlock_api_list_endpoints"
         assert "api" in definition["parameters"]["properties"]
         assert "api" in definition["parameters"]["required"]
         assert definition["parameters"]["properties"]["api"]["enum"] == ["data", "assets"]
 
     @pytest.mark.asyncio
-    async def test_run_fetches_data_api_schema(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
-        """Test fetching the data API schema."""
+    async def test_run_lists_data_api_endpoints(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
+        """Test listing endpoints from data API spec."""
         sample_spec = {
             "openapi": "3.0.0",
             "info": {"title": "Deadlock API", "version": "1.0.0"},
-            "paths": {"/v1/matches": {"get": {"summary": "Get matches"}}},
+            "paths": {
+                "/v1/matches": {"get": {"summary": "Get matches"}},
+                "/v1/players/{id}": {
+                    "get": {"summary": "Get player"},
+                    "post": {"summary": "Update player"},
+                },
+            },
         }
 
         mock_response = MagicMock()
@@ -1484,45 +1491,26 @@ class TestDeadlockAPISchemaFetchTool:
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch.object(schema_tool, "_get_client", return_value=mock_client):
-            result = await schema_tool._run(api="data")
+        with patch.object(list_tool, "_get_client", return_value=mock_client):
+            result = await list_tool._run(api="data")
 
-        assert result == sample_spec
+        assert len(result) == 3
+        assert result[0] == {"method": "GET", "path": "/v1/matches", "summary": "Get matches"}
+        assert result[1] == {"method": "GET", "path": "/v1/players/{id}", "summary": "Get player"}
+        assert result[2] == {"method": "POST", "path": "/v1/players/{id}", "summary": "Update player"}
         mock_client.get.assert_called_once_with(OPENAPI_SPEC_URLS["data"])
 
     @pytest.mark.asyncio
-    async def test_run_fetches_assets_api_schema(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
-        """Test fetching the assets API schema."""
-        sample_spec = {
-            "openapi": "3.0.0",
-            "info": {"title": "Deadlock Assets API", "version": "1.0.0"},
-            "paths": {"/v2/heroes": {"get": {"summary": "Get heroes"}}},
-        }
-
-        mock_response = MagicMock()
-        mock_response.json.return_value = sample_spec
-        mock_response.raise_for_status = MagicMock()
-
-        mock_client = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response)
-
-        with patch.object(schema_tool, "_get_client", return_value=mock_client):
-            result = await schema_tool._run(api="assets")
-
-        assert result == sample_spec
-        mock_client.get.assert_called_once_with(OPENAPI_SPEC_URLS["assets"])
-
-    @pytest.mark.asyncio
-    async def test_run_rejects_invalid_api_name(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
+    async def test_run_rejects_invalid_api_name(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
         """Test ValueError raised for invalid API name."""
         with pytest.raises(ValueError) as exc_info:
-            await schema_tool._run(api="invalid")
+            await list_tool._run(api="invalid")
 
         assert "Invalid API name" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_run_handles_http_error(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
-        """Test handling of HTTP errors during schema fetch."""
+    async def test_run_handles_http_error(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
+        """Test handling of HTTP errors during spec fetch."""
         mock_response = MagicMock()
         mock_response.status_code = 503
         error = httpx.HTTPStatusError("Service Unavailable", request=MagicMock(), response=mock_response)
@@ -1531,38 +1519,40 @@ class TestDeadlockAPISchemaFetchTool:
         mock_client.get = AsyncMock(side_effect=error)
 
         with (
-            patch.object(schema_tool, "_get_client", return_value=mock_client),
+            patch.object(list_tool, "_get_client", return_value=mock_client),
             pytest.raises(OpenAPIConnectionError) as exc_info,
         ):
-            await schema_tool._run(api="data")
+            await list_tool._run(api="data")
 
         assert "HTTP 503" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_run_handles_network_error(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
-        """Test handling of network errors during schema fetch."""
+    async def test_run_handles_network_error(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
+        """Test handling of network errors during spec fetch."""
         error = httpx.RequestError("Connection refused")
 
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(side_effect=error)
 
         with (
-            patch.object(schema_tool, "_get_client", return_value=mock_client),
+            patch.object(list_tool, "_get_client", return_value=mock_client),
             pytest.raises(OpenAPIConnectionError) as exc_info,
         ):
-            await schema_tool._run(api="assets")
+            await list_tool._run(api="assets")
 
         assert "Network error" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_execute_emits_sse_events(
-        self, schema_tool: DeadlockAPISchemaFetchTool, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]
+        self, list_tool: DeadlockAPIListEndpointsTool, sse_events: list[ChatToolStartEvent | ChatToolEndEvent]
     ) -> None:
         """Test execute emits start and end SSE events."""
         sample_spec = {
             "openapi": "3.0.0",
-            "info": {"title": "Deadlock API", "version": "1.0.0"},
-            "paths": {"/v1/matches": {}, "/v1/players": {}},
+            "paths": {
+                "/v1/matches": {"get": {"summary": "Get matches"}},
+                "/v1/players": {"get": {"summary": "Get players"}},
+            },
         }
 
         mock_response = MagicMock()
@@ -1572,37 +1562,25 @@ class TestDeadlockAPISchemaFetchTool:
         mock_client = AsyncMock()
         mock_client.get = AsyncMock(return_value=mock_response)
 
-        with patch.object(schema_tool, "_get_client", return_value=mock_client):
-            await schema_tool.execute(api="data")
+        with patch.object(list_tool, "_get_client", return_value=mock_client):
+            await list_tool.execute(api="data")
 
         assert len(sse_events) == 2
 
         start_event = sse_events[0]
         assert isinstance(start_event, ChatToolStartEvent)
-        assert start_event.tool_name == "deadlock_api_schema"
-        assert start_event.arguments == {"api": "data"}
+        assert start_event.tool_name == "deadlock_api_list_endpoints"
 
         end_event = sse_events[1]
         assert isinstance(end_event, ChatToolEndEvent)
         assert end_event.success is True
         assert "2 endpoints" in end_event.result_summary
 
-    def test_result_summary_formatting(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
+    def test_result_summary_formatting(self, list_tool: DeadlockAPIListEndpointsTool) -> None:
         """Test result summary formatting."""
-        result = {
-            "info": {"title": "Deadlock API"},
-            "paths": {"/v1/matches": {}, "/v1/players": {}, "/v1/heroes": {}},
-        }
-        summary = schema_tool._create_result_summary(result)
-        assert "Deadlock API" in summary
-        assert "3 endpoints" in summary
-
-    def test_result_summary_with_missing_info(self, schema_tool: DeadlockAPISchemaFetchTool) -> None:
-        """Test result summary with missing info section."""
-        result = {"paths": {"/v1/matches": {}}}
-        summary = schema_tool._create_result_summary(result)
-        assert "Unknown API" in summary
-        assert "1 endpoints" in summary
+        result = [{"method": "GET", "path": "/v1/a", "summary": ""}, {"method": "POST", "path": "/v1/b", "summary": ""}]
+        summary = list_tool._create_result_summary(result)
+        assert "2 endpoints" in summary
 
     def test_openapi_spec_urls_constant(self) -> None:
         """Test OPENAPI_SPEC_URLS contains expected entries."""
@@ -1610,6 +1588,159 @@ class TestDeadlockAPISchemaFetchTool:
         assert "assets" in OPENAPI_SPEC_URLS
         assert OPENAPI_SPEC_URLS["data"] == "https://api.deadlock-api.com/openapi.json"
         assert OPENAPI_SPEC_URLS["assets"] == "https://assets.deadlock-api.com/openapi.json"
+
+
+class TestDeadlockAPIEndpointDetailsTool:
+    """Tests for DeadlockAPIEndpointDetailsTool."""
+
+    @pytest.fixture
+    def sse_callback(self) -> Any:
+        """Create SSE callback."""
+
+        def callback(event: ChatToolStartEvent | ChatToolEndEvent) -> None:
+            pass  # noqa: ARG001
+
+        return callback
+
+    @pytest.fixture
+    def details_tool(self, sse_callback: Any) -> DeadlockAPIEndpointDetailsTool:
+        """Create DeadlockAPIEndpointDetailsTool instance."""
+        return DeadlockAPIEndpointDetailsTool(sse_callback=sse_callback, timeout=10.0)
+
+    def test_name_property(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test name property returns correct name."""
+        assert details_tool.name == "deadlock_api_endpoint_details"
+
+    def test_get_definition(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test get_definition returns correct structure."""
+        definition = details_tool.get_definition()
+        assert definition["name"] == "deadlock_api_endpoint_details"
+        assert "api" in definition["parameters"]["properties"]
+        assert "path" in definition["parameters"]["properties"]
+        assert "method" in definition["parameters"]["properties"]
+        assert "api" in definition["parameters"]["required"]
+        assert "path" in definition["parameters"]["required"]
+
+    @pytest.mark.asyncio
+    async def test_run_returns_endpoint_details(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test fetching details for a specific endpoint."""
+        sample_spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/v1/matches/{match_id}": {
+                    "get": {
+                        "summary": "Get match",
+                        "description": "Fetch match details",
+                        "parameters": [
+                            {"name": "match_id", "in": "path", "required": True, "schema": {"type": "integer"}},
+                        ],
+                        "responses": {"200": {"description": "Match data"}},
+                    },
+                },
+            },
+            "components": {"schemas": {}},
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_spec
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(details_tool, "_get_client", return_value=mock_client):
+            result = await details_tool._run(api="data", path="/v1/matches/{match_id}")
+
+        assert result["method"] == "GET"
+        assert result["path"] == "/v1/matches/{match_id}"
+        assert result["summary"] == "Get match"
+        assert len(result["parameters"]) == 1
+        assert result["responses"]["200"]["description"] == "Match data"
+
+    @pytest.mark.asyncio
+    async def test_run_resolves_refs(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test that $ref references are resolved."""
+        sample_spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/v1/heroes": {
+                    "get": {
+                        "summary": "Get heroes",
+                        "responses": {
+                            "200": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Hero"}}}},
+                        },
+                    },
+                },
+            },
+            "components": {
+                "schemas": {
+                    "Hero": {"type": "object", "properties": {"id": {"type": "integer"}, "name": {"type": "string"}}},
+                },
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_spec
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with patch.object(details_tool, "_get_client", return_value=mock_client):
+            result = await details_tool._run(api="data", path="/v1/heroes")
+
+        # The $ref should be resolved to the actual schema
+        response_schema = result["responses"]["200"]["content"]["application/json"]["schema"]
+        assert response_schema["type"] == "object"
+        assert "id" in response_schema["properties"]
+
+    @pytest.mark.asyncio
+    async def test_run_rejects_invalid_api_name(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test ValueError raised for invalid API name."""
+        with pytest.raises(ValueError) as exc_info:
+            await details_tool._run(api="invalid", path="/v1/test")
+
+        assert "Invalid API name" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_run_rejects_unknown_path(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test ValueError raised for unknown endpoint path."""
+        sample_spec = {"openapi": "3.0.0", "paths": {"/v1/matches": {"get": {"summary": "Get matches"}}}}
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_spec
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.object(details_tool, "_get_client", return_value=mock_client),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            await details_tool._run(api="data", path="/v1/nonexistent")
+
+        assert "not found" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_run_rejects_unknown_method(self, details_tool: DeadlockAPIEndpointDetailsTool) -> None:
+        """Test ValueError raised for unknown method on existing path."""
+        sample_spec = {"openapi": "3.0.0", "paths": {"/v1/matches": {"get": {"summary": "Get matches"}}}}
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = sample_spec
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+
+        with (
+            patch.object(details_tool, "_get_client", return_value=mock_client),
+            pytest.raises(ValueError) as exc_info,
+        ):
+            await details_tool._run(api="data", path="/v1/matches", method="POST")
+
+        assert "Method POST not found" in str(exc_info.value)
 
 
 class TestDeadlockAPIToolGenerator:

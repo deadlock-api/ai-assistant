@@ -51,7 +51,25 @@ class ChatToolEndEvent(BaseModel):
     result_summary: str
 
 
-type SSEEvent = ChatStartEvent | ChatDeltaEvent | ChatEndEvent | ChatErrorEvent | ChatToolStartEvent | ChatToolEndEvent
+class ChatUsageEvent(BaseModel):
+    """SSE event sent with token usage data after a response completes."""
+
+    event: Literal["usage"] = "usage"
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+
+
+type SSEEvent = (
+    ChatStartEvent
+    | ChatDeltaEvent
+    | ChatEndEvent
+    | ChatErrorEvent
+    | ChatToolStartEvent
+    | ChatToolEndEvent
+    | ChatUsageEvent
+)
 
 
 def serialize_sse_event(event: SSEEvent) -> str:

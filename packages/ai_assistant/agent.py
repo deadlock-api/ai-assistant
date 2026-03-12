@@ -186,6 +186,7 @@ options = ClaudeAgentOptions(
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
@@ -196,7 +197,9 @@ from claude_agent_sdk._errors import ClaudeSDKError, CLIConnectionError, CLINotF
 from claude_agent_sdk.types import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock
 from toon_format import encode as toon_encode
 
-from packages.api.models import ChatToolEndEvent, ChatToolStartEvent
+from packages.api.models import ChatToolEndEvent, ChatToolStartEvent, ChatUsageEvent
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from claude_agent_sdk.types import Message
@@ -252,8 +255,8 @@ The Deadlock API is a community-driven, open-source project providing comprehens
 * **GitHub**: https://github.com/deadlock-api/
 * **Discord**: https://discord.gg/XMF9Xrgfqu
 * **Patreon**: https://www.patreon.com/user?u=68961896
-* When users ask about available API endpoints, how to use the API, or what data the API provides,
-  use the `deadlock_api_schema` tool to fetch the full OpenAPI spec and provide accurate answers.
+* When users ask about available API endpoints, use `deadlock_api_list_endpoints` to discover endpoints,
+  then `deadlock_api_endpoint_details` to get parameter details for specific endpoints.
 * Use `deadlock_api_info` for quick resource links and general API information.
 </knowledge_base>
 
@@ -271,6 +274,13 @@ DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_INITIAL_BACKOFF = 1.0  # seconds
 DEFAULT_BACKOFF_MULTIPLIER = 2.0
+
+# Conversation history truncation defaults
+DEFAULT_MAX_HISTORY_MESSAGES = 20
+DEFAULT_MAX_HISTORY_CHARS = 8000  # ~2000 tokens
+
+# Tool result truncation
+MAX_TOOL_RESULT_CHARS = 12000  # ~3000 tokens
 
 
 class AgentError(Exception):
@@ -307,14 +317,14 @@ class AgentConfig:
     max_retries: int = DEFAULT_MAX_RETRIES
     initial_backoff: float = DEFAULT_INITIAL_BACKOFF
     backoff_multiplier: float = DEFAULT_BACKOFF_MULTIPLIER
-    max_turns: int = 100  # Allow multiple turns for tool use
+    max_turns: int = 25  # Allow multiple turns for tool use
 
 
 # Type alias for SSE callback
-type SSEEventCallback = Callable[[ChatToolStartEvent | ChatToolEndEvent], None]
+type SSEEventCallback = Callable[[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent], None]
 
 
-def _noop_sse_callback(event: ChatToolStartEvent | ChatToolEndEvent) -> None:
+def _noop_sse_callback(event: ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent) -> None:
     """No-op SSE callback for when no event emission is needed."""
     pass
 
@@ -327,7 +337,7 @@ def get_agent_config() -> AgentConfig:
     """
     model = os.environ.get("AGENT_MODEL", DEFAULT_MODEL)
     timeout = float(os.environ.get("AGENT_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
-    max_turns = int(os.environ.get("AGENT_MAX_TURNS", 100))
+    max_turns = int(os.environ.get("AGENT_MAX_TURNS", 25))
     return AgentConfig(model=model, timeout_seconds=timeout, max_turns=max_turns)
 
 
@@ -536,6 +546,11 @@ class DeadlockAgentClient:
                 else:
                     result_text = str(result)
 
+                # Truncate large tool results to reduce token usage
+                if len(result_text) > MAX_TOOL_RESULT_CHARS:
+                    original_len = len(result_text)
+                    result_text = result_text[:MAX_TOOL_RESULT_CHARS] + (f"\n... [Truncated from {original_len} chars]")
+
                 return {"content": [{"type": "text", "text": result_text}]}
             except Exception as e:
                 return {"content": [{"type": "text", "text": f"Error executing {tool_name}: {e}"}], "is_error": True}
@@ -664,6 +679,7 @@ class DeadlockAgentClient:
         """Process a message from the SDK into StreamChunks.
 
         Also emits SSE events for tool usage via the sse_callback.
+        Extracts token usage data from ResultMessage for monitoring.
 
         Args:
             msg: A message from ClaudeSDKClient.
@@ -683,6 +699,27 @@ class DeadlockAgentClient:
                     # by the tool itself via the registry's SSE callback
                     pass
         elif isinstance(msg, ResultMessage):
+            # Extract token usage data if available
+            usage = getattr(msg, "usage", None)
+            if usage is not None:
+                input_tokens = getattr(usage, "input_tokens", 0)
+                output_tokens = getattr(usage, "output_tokens", 0)
+                cache_read = getattr(usage, "cache_read_input_tokens", 0)
+                cache_creation = getattr(usage, "cache_creation_input_tokens", 0)
+                logger.info(
+                    "Token usage: input=%d output=%d cache_read=%d cache_creation=%d",
+                    input_tokens,
+                    output_tokens,
+                    cache_read,
+                    cache_creation,
+                )
+                usage_event = ChatUsageEvent(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cache_read_tokens=cache_read,
+                    cache_creation_tokens=cache_creation,
+                )
+                self.sse_callback(usage_event)
             chunks.append(StreamChunk(content="", is_complete=True))
 
         return chunks
@@ -746,6 +783,11 @@ def _build_prompt_with_history(
 ) -> str:
     """Build a prompt that includes conversation history.
 
+    Applies sliding window truncation to keep token usage bounded:
+    - Keeps at most MAX_HISTORY_MESSAGES recent messages
+    - Truncates oldest messages if total chars exceed MAX_HISTORY_CHARS
+    - Prepends "[Earlier messages omitted]" when truncation occurs
+
     Args:
         message: The current user message.
         conversation_history: Previous conversation messages.
@@ -756,9 +798,16 @@ def _build_prompt_with_history(
     if not conversation_history:
         return message
 
+    max_messages = int(os.environ.get("AGENT_MAX_HISTORY_MESSAGES", DEFAULT_MAX_HISTORY_MESSAGES))
+    max_chars = int(os.environ.get("AGENT_MAX_HISTORY_CHARS", DEFAULT_MAX_HISTORY_CHARS))
+
+    # Apply sliding window: keep last N messages
+    truncated = len(conversation_history) > max_messages
+    history = conversation_history[-max_messages:]
+
     # Format conversation history as context
-    history_parts = []
-    for msg in conversation_history:
+    history_parts: list[str] = []
+    for msg in history:
         role = msg.get("role", "user")
         content = msg.get("content", "")
         if role == "user":
@@ -766,9 +815,17 @@ def _build_prompt_with_history(
         elif role == "assistant":
             history_parts.append(f"Assistant: {content}")
 
+    # Truncate oldest messages if over char budget
+    total_chars = sum(len(part) for part in history_parts)
+    while history_parts and total_chars > max_chars:
+        removed = history_parts.pop(0)
+        total_chars -= len(removed)
+        truncated = True
+
     if history_parts:
+        prefix = "[Earlier messages omitted]\n" if truncated else ""
         history_text = "\n".join(history_parts)
-        return f"Previous conversation:\n{history_text}\n\nUser: {message}"
+        return f"Previous conversation:\n{prefix}{history_text}\n\nUser: {message}"
 
     return message
 

@@ -20,6 +20,9 @@ from packages.integrations.redis_client import (
 # Default TTL: 24 hours in seconds
 DEFAULT_CONVERSATION_TTL = 24 * 60 * 60
 
+# Maximum number of messages stored per conversation in Redis
+MAX_STORED_MESSAGES = 50
+
 
 class ConversationMessage(BaseModel):
     """A single message in a conversation."""
@@ -141,6 +144,11 @@ async def add_message(
         messages = []
 
     messages.append(message)
+
+    # Cap stored messages to prevent unbounded growth
+    if len(messages) > MAX_STORED_MESSAGES:
+        messages = messages[-MAX_STORED_MESSAGES:]
+
     await save_conversation_history(conversation_id, messages)
     return message
 
@@ -194,6 +202,7 @@ __all__ = [
     "ConversationMessage",
     "ConversationError",
     "ConversationNotFoundError",
+    "MAX_STORED_MESSAGES",
     "get_conversation_ttl",
     "generate_conversation_id",
     "get_conversation_history",

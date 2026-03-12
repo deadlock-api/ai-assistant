@@ -271,7 +271,7 @@ class ClickHouseQueryTool(BaseTool):
     """
 
     # Default maximum number of result rows
-    DEFAULT_ROW_LIMIT = 1000
+    DEFAULT_ROW_LIMIT = 200
 
     # Maximum length for query in result summary
     MAX_QUERY_SUMMARY_LENGTH = 100
@@ -389,7 +389,7 @@ class ClickHouseQueryTool(BaseTool):
             "description": (
                 "Execute a SELECT query against the ClickHouse database for analytics. "
                 "Only read-only queries are allowed; data modifications are rejected. "
-                "Results are limited to 1000 rows by default. "
+                "Results are limited to 200 rows by default. "
                 "PREREQUISITE: You MUST call clickhouse_list_tables first before using this tool. "
                 "IMPORTANT: Prefer running multiple simple, focused queries over complex ones. "
                 "For example, run separate queries for different aggregations rather than combining them. "

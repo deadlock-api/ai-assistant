@@ -26,6 +26,7 @@ from packages.api.models import (
     ChatStartEvent,
     ChatToolEndEvent,
     ChatToolStartEvent,
+    ChatUsageEvent,
     serialize_sse_event,
 )
 from packages.integrations.conversation import (
@@ -84,12 +85,12 @@ async def _generate_sse_stream(
     collect(start_event)
     yield start_event
 
-    # Create an async queue to collect tool events
-    tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | None] = asyncio.Queue()
+    # Create an async queue to collect tool and usage events
+    tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent | None] = asyncio.Queue()
 
-    # Create SSE callback that adds tool events to the queue
-    def sse_callback(event: ChatToolStartEvent | ChatToolEndEvent) -> None:
-        """Callback that queues tool events for SSE streaming."""
+    # Create SSE callback that adds tool/usage events to the queue
+    def sse_callback(event: ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent) -> None:
+        """Callback that queues tool and usage events for SSE streaming."""
         with contextlib.suppress(asyncio.QueueFull):
             tool_event_queue.put_nowait(event)
 

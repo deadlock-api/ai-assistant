@@ -181,12 +181,11 @@ class DeadlockAPIInfoTool(BaseTool):
         return f"Returned info for {len(result)} Deadlock API resources"
 
 
-class DeadlockAPISchemaFetchTool(BaseTool):
-    """Tool that fetches OpenAPI schemas for the Deadlock APIs.
+class DeadlockAPIListEndpointsTool(BaseTool):
+    """Tool that lists all available endpoints for a Deadlock API.
 
-    Allows the agent to retrieve the full OpenAPI specification for either
-    the Game Data API or the Assets API, enabling it to answer detailed
-    questions about available endpoints, parameters, and response formats.
+    Fetches the OpenAPI spec and returns a compact list of endpoints
+    with method, path, and summary. Much cheaper than fetching the full schema.
     """
 
     def __init__(
@@ -199,7 +198,7 @@ class DeadlockAPISchemaFetchTool(BaseTool):
 
     @property
     def name(self) -> str:
-        return "deadlock_api_schema"
+        return "deadlock_api_list_endpoints"
 
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create the HTTP client."""
@@ -212,10 +211,10 @@ class DeadlockAPISchemaFetchTool(BaseTool):
         return {
             "name": self.name,
             "description": (
-                "Fetch the OpenAPI schema for a Deadlock API. Use this to answer questions about "
-                "available API endpoints, request parameters, response formats, and how to use the API. "
-                "Pass api='data' for the Game Data API (matches, players, leaderboards) or "
-                "api='assets' for the Assets API (heroes, items, images, game data)."
+                "List all available endpoints for a Deadlock API. Returns method, path, and summary "
+                "for each endpoint. Use this to discover what endpoints are available before calling them. "
+                "Pass api='data' for the Game Data API (api.deadlock-api.com) or "
+                "api='assets' for the Assets API (assets.deadlock-api.com)."
             ),
             "parameters": {
                 "type": "object",
@@ -224,9 +223,9 @@ class DeadlockAPISchemaFetchTool(BaseTool):
                         "type": "string",
                         "enum": ["data", "assets"],
                         "description": (
-                            "Which API schema to fetch: "
-                            "'data' for the Game Data API (api.deadlock-api.com) or "
-                            "'assets' for the Assets API (assets.deadlock-api.com)"
+                            "Which API to list endpoints for: "
+                            "'data' for the Game Data API or "
+                            "'assets' for the Assets API"
                         ),
                     },
                 },
@@ -235,18 +234,18 @@ class DeadlockAPISchemaFetchTool(BaseTool):
         }
 
     @retry(max_attempts=3, base_delay=1.0)
-    async def _run(self, api: str) -> dict[str, Any]:
-        """Fetch the OpenAPI schema for the specified API.
+    async def _run(self, api: str) -> list[dict[str, str]]:
+        """List all endpoints for the specified API.
 
         Args:
-            api: Which API to fetch the schema for ('data' or 'assets')
+            api: Which API to list endpoints for ('data' or 'assets')
 
         Returns:
-            The OpenAPI specification as a dictionary
+            List of dicts with 'method', 'path', and 'summary' keys
 
         Raises:
             ValueError: If api is not 'data' or 'assets'
-            OpenAPIConnectionError: If the schema cannot be fetched
+            OpenAPIConnectionError: If the spec cannot be fetched
         """
         if api not in OPENAPI_SPEC_URLS:
             raise ValueError(f"Invalid API name: {api}. Must be one of: {', '.join(sorted(OPENAPI_SPEC_URLS))}")
@@ -257,17 +256,180 @@ class DeadlockAPISchemaFetchTool(BaseTool):
             client = await self._get_client()
             response = await client.get(spec_url)
             response.raise_for_status()
-            return response.json()
+            spec: dict[str, Any] = response.json()
         except httpx.HTTPStatusError as e:
-            raise OpenAPIConnectionError(f"Failed to fetch {api} API schema: HTTP {e.response.status_code}") from e
+            raise OpenAPIConnectionError(f"Failed to fetch {api} API spec: HTTP {e.response.status_code}") from e
         except httpx.RequestError as e:
-            raise OpenAPIConnectionError(f"Network error fetching {api} API schema: {e}") from e
+            raise OpenAPIConnectionError(f"Network error fetching {api} API spec: {e}") from e
+
+        endpoints: list[dict[str, str]] = []
+        paths: dict[str, Any] = spec.get("paths", {})
+        for path, methods in sorted(paths.items()):
+            for method, operation in methods.items():
+                if method in ("get", "post", "put", "delete", "patch"):
+                    endpoints.append(
+                        {
+                            "method": method.upper(),
+                            "path": path,
+                            "summary": operation.get("summary", ""),
+                        }
+                    )
+
+        return endpoints
+
+    def _create_result_summary(self, result: list[dict[str, str]]) -> str:
+        return f"Listed {len(result)} endpoints"
+
+    async def close(self) -> None:
+        """Close the HTTP client."""
+        if self._http_client:
+            await self._http_client.aclose()
+            self._http_client = None
+
+
+class DeadlockAPIEndpointDetailsTool(BaseTool):
+    """Tool that fetches details for a specific Deadlock API endpoint.
+
+    Returns parameters, request body schema, and response schema for a
+    single endpoint. Use after listing endpoints to get usage details.
+    """
+
+    def __init__(
+        self,
+        sse_callback: SSECallback,
+        timeout: float = 60.0,
+    ) -> None:
+        super().__init__(sse_callback, timeout)
+        self._http_client: httpx.AsyncClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "deadlock_api_endpoint_details"
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Get or create the HTTP client."""
+        if self._http_client is None:
+            self._http_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._http_client
+
+    def get_definition(self) -> dict[str, Any]:
+        """Get tool definition for agent configuration."""
+        return {
+            "name": self.name,
+            "description": (
+                "Get detailed information about a specific Deadlock API endpoint, including "
+                "parameters, request body, and response schema. Use deadlock_api_list_endpoints "
+                "first to discover available endpoints, then use this to get details for a specific one."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "api": {
+                        "type": "string",
+                        "enum": ["data", "assets"],
+                        "description": (
+                            "Which API the endpoint belongs to: "
+                            "'data' for the Game Data API or "
+                            "'assets' for the Assets API"
+                        ),
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "The endpoint path (e.g., '/v1/players/{account_id}/match-history')",
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "POST", "PUT", "DELETE", "PATCH"],
+                        "description": "HTTP method (default: GET)",
+                    },
+                },
+                "required": ["api", "path"],
+            },
+        }
+
+    @retry(max_attempts=3, base_delay=1.0)
+    async def _run(self, api: str, path: str, method: str = "GET") -> dict[str, Any]:
+        """Get details for a specific endpoint.
+
+        Args:
+            api: Which API ('data' or 'assets')
+            path: The endpoint path
+            method: HTTP method (default: GET)
+
+        Returns:
+            Dict with endpoint details (parameters, requestBody, responses)
+
+        Raises:
+            ValueError: If api is invalid or endpoint not found
+            OpenAPIConnectionError: If the spec cannot be fetched
+        """
+        if api not in OPENAPI_SPEC_URLS:
+            raise ValueError(f"Invalid API name: {api}. Must be one of: {', '.join(sorted(OPENAPI_SPEC_URLS))}")
+
+        spec_url = OPENAPI_SPEC_URLS[api]
+
+        try:
+            client = await self._get_client()
+            response = await client.get(spec_url)
+            response.raise_for_status()
+            spec: dict[str, Any] = response.json()
+        except httpx.HTTPStatusError as e:
+            raise OpenAPIConnectionError(f"Failed to fetch {api} API spec: HTTP {e.response.status_code}") from e
+        except httpx.RequestError as e:
+            raise OpenAPIConnectionError(f"Network error fetching {api} API spec: {e}") from e
+
+        paths: dict[str, Any] = spec.get("paths", {})
+        if path not in paths:
+            raise ValueError(f"Endpoint '{path}' not found in {api} API. Use deadlock_api_list_endpoints to see all.")
+
+        method_lower = method.lower()
+        path_data: dict[str, Any] = paths[path]
+        if method_lower not in path_data:
+            available = [m.upper() for m in path_data if m in ("get", "post", "put", "delete", "patch")]
+            raise ValueError(f"Method {method} not found for {path}. Available methods: {', '.join(available)}")
+
+        operation: dict[str, Any] = path_data[method_lower]
+
+        # Resolve $ref references in schemas for clarity
+        components = spec.get("components", {})
+        schemas = components.get("schemas", {})
+
+        def resolve_ref(obj: Any) -> Any:
+            """Resolve a single level of $ref references."""
+            if isinstance(obj, dict):
+                if "$ref" in obj:
+                    ref_path = obj["$ref"]
+                    # Handle #/components/schemas/SchemaName
+                    if ref_path.startswith("#/components/schemas/"):
+                        schema_name = ref_path.split("/")[-1]
+                        if schema_name in schemas:
+                            return schemas[schema_name]
+                    return obj
+                return {k: resolve_ref(v) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [resolve_ref(item) for item in obj]
+            return obj
+
+        result: dict[str, Any] = {
+            "method": method.upper(),
+            "path": path,
+            "summary": operation.get("summary", ""),
+            "description": operation.get("description", ""),
+        }
+
+        if "parameters" in operation:
+            result["parameters"] = resolve_ref(operation["parameters"])
+
+        if "requestBody" in operation:
+            result["request_body"] = resolve_ref(operation["requestBody"])
+
+        if "responses" in operation:
+            result["responses"] = resolve_ref(operation["responses"])
+
+        return result
 
     def _create_result_summary(self, result: dict[str, Any]) -> str:
-        info = result.get("info", {})
-        title = info.get("title", "Unknown API")
-        paths = result.get("paths", {})
-        return f"Schema for {title}: {len(paths)} endpoints"
+        return f"Details for {result.get('method', '?')} {result.get('path', '?')}"
 
     async def close(self) -> None:
         """Close the HTTP client."""
@@ -306,8 +468,9 @@ class DeadlockAPICallTool(BaseTool):
         return {
             "name": self.name,
             "description": (
-                "Generic tool to call any Deadlock API endpoint. "
-                "Use this when specific API tools don't cover your needs."
+                "Call any Deadlock Game Data API endpoint (api.deadlock-api.com). "
+                "Use deadlock_api_list_endpoints with api='data' to discover available endpoints, "
+                "and deadlock_api_endpoint_details to get parameter details for a specific endpoint."
             ),
             "parameters": {
                 "type": "object",
@@ -407,8 +570,9 @@ class DeadlockAPICallTool(BaseTool):
 __all__ = [
     "DeadlockAPIToolGenerator",
     "DeadlockAPICallTool",
+    "DeadlockAPIEndpointDetailsTool",
     "DeadlockAPIInfoTool",
-    "DeadlockAPISchemaFetchTool",
+    "DeadlockAPIListEndpointsTool",
     "create_deadlock_api_tools",
     "DEADLOCK_API_SPEC_URL",
     "DEADLOCK_API_TOOL_PREFIX",
