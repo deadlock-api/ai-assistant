@@ -18,7 +18,9 @@ from packages.ai_assistant.agent import (
     AgentRateLimitError,
     AgentRetryExhaustedError,
     AgentTimeoutError,
-    stream_response,
+    DeadlockAgentClient,
+    _build_prompt_with_history,
+    get_agent_config,
 )
 from packages.api.models import (
     ChatDeltaEvent,
@@ -60,16 +62,30 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
 
 
-async def _stream_agent_response(
+def _drain_tool_events(
+    tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent | None],
+    events: list[str],
+) -> None:
+    """Drain pending tool/usage events from the queue into the events list."""
+    while not tool_event_queue.empty():
+        try:
+            tool_event = tool_event_queue.get_nowait()
+            if tool_event is not None:
+                events.append(serialize_sse_event(tool_event))
+        except asyncio.QueueEmpty:
+            break
+
+
+async def _collect_client_response(
+    client: DeadlockAgentClient,
     message: str,
-    history: list[dict[str, str]],
     tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent | None],
 ) -> tuple[str, list[str]]:
-    """Run the agent and collect response content and SSE delta events.
+    """Send a message to an existing client and collect response content and SSE events.
 
     Args:
-        message: The user message.
-        history: The conversation history.
+        client: The connected DeadlockAgentClient.
+        message: The message to send.
         tool_event_queue: Queue for tool/usage events from SSE callback.
 
     Returns:
@@ -78,45 +94,21 @@ async def _stream_agent_response(
     events: list[str] = []
     response_content = ""
 
-    # Create SSE callback that adds tool/usage events to the queue
-    def sse_callback(event: ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent) -> None:
-        with contextlib.suppress(asyncio.QueueFull):
-            tool_event_queue.put_nowait(event)
+    async for chunk in client.send_message(message):
+        _drain_tool_events(tool_event_queue, events)
 
-    tool_registry = ToolRegistry(sse_callback=sse_callback)
+        if chunk.content:
+            response_content += chunk.content
+            events.append(serialize_sse_event(ChatDeltaEvent(content=chunk.content)))
 
-    try:
-        async for chunk in stream_response(
-            message,
-            conversation_history=history,
-            tool_registry=tool_registry,
-            sse_callback=sse_callback,
-        ):
-            # Drain pending tool events
-            while not tool_event_queue.empty():
-                try:
-                    tool_event = tool_event_queue.get_nowait()
-                    if tool_event is not None:
-                        events.append(serialize_sse_event(tool_event))
-                except asyncio.QueueEmpty:
-                    break
-
-            if chunk.content:
-                response_content += chunk.content
-                events.append(serialize_sse_event(ChatDeltaEvent(content=chunk.content)))
-
-        # Drain remaining tool events
-        while not tool_event_queue.empty():
-            try:
-                tool_event = tool_event_queue.get_nowait()
-                if tool_event is not None:
-                    events.append(serialize_sse_event(tool_event))
-            except asyncio.QueueEmpty:
-                break
-    finally:
-        await tool_registry.close()
-
+    _drain_tool_events(tool_event_queue, events)
     return response_content, events
+
+
+NUDGE_MESSAGE = (
+    "You used tools but did not provide a response to the user. "
+    "Please summarize the tool results and answer the user's question now."
+)
 
 
 async def _generate_sse_stream(
@@ -127,9 +119,10 @@ async def _generate_sse_stream(
 ) -> AsyncIterator[str]:
     """Generate an SSE stream for a chat request.
 
-    Retries automatically when the agent returns empty content (e.g. model
-    returned no text after tool use). Tool events from failed attempts are
-    still streamed to the client so they can see progress.
+    Uses a single DeadlockAgentClient session so that when the model returns
+    empty content after tool use (common with free-tier models), a follow-up
+    nudge message can be sent within the same session — preserving tool result
+    context instead of retrying from scratch.
 
     Args:
         message: The user message.
@@ -155,24 +148,34 @@ async def _generate_sse_stream(
 
     response_content = ""
 
+    # Create SSE callback that adds tool/usage events to the queue
+    def sse_callback(event: ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent) -> None:
+        with contextlib.suppress(asyncio.QueueFull):
+            tool_event_queue.put_nowait(event)
+
+    tool_registry = ToolRegistry(sse_callback=sse_callback)
+    config = get_agent_config()
+    client = DeadlockAgentClient(config=config, tool_registry=tool_registry, sse_callback=sse_callback)
+
     try:
-        # +2: range is exclusive and attempt 1 is the first try
-        for attempt in range(1, MAX_EMPTY_RESPONSE_RETRIES + 2):
-            response_content, events = await _stream_agent_response(message, history, tool_event_queue)
+        await client.connect()
 
-            # Emit all events from this attempt (tool events + deltas)
-            for event_str in events:
-                collect(event_str)
-                yield event_str
+        # Build full prompt with history (same as stream_response does)
+        full_prompt = _build_prompt_with_history(message, history)
 
-            # If we got content, we're done
-            if response_content.strip():
-                break
+        # First attempt: send the actual user message
+        response_content, events = await _collect_client_response(client, full_prompt, tool_event_queue)
 
-            # Empty response — decide whether to retry
-            if attempt <= MAX_EMPTY_RESPONSE_RETRIES:
+        for event_str in events:
+            collect(event_str)
+            yield event_str
+
+        # If we got content on the first try, we're done
+        if not response_content.strip():
+            # Empty response after tool use — send nudge messages within the same session
+            for attempt in range(1, MAX_EMPTY_RESPONSE_RETRIES + 1):
                 logger.warning(
-                    "Agent returned empty response, retrying",
+                    "Agent returned empty response, sending nudge",
                     extra={
                         "conversation_id": conversation_id,
                         "attempt": attempt,
@@ -183,12 +186,23 @@ async def _generate_sse_stream(
                 retry_event = serialize_sse_event(ChatDeltaEvent(content="\n\n*Retrying request...*\n\n"))
                 collect(retry_event)
                 yield retry_event
+
+                # Send nudge within the SAME session — model still has tool results in context
+                response_content, events = await _collect_client_response(client, NUDGE_MESSAGE, tool_event_queue)
+
+                for event_str in events:
+                    collect(event_str)
+                    yield event_str
+
+                if response_content.strip():
+                    break
             else:
+                # All nudge attempts exhausted
                 logger.warning(
-                    "Agent returned empty response after all retries",
+                    "Agent returned empty response after all nudge attempts",
                     extra={
                         "conversation_id": conversation_id,
-                        "attempts": attempt,
+                        "attempts": MAX_EMPTY_RESPONSE_RETRIES,
                         "user_message": message[:200],
                     },
                 )
@@ -230,6 +244,8 @@ async def _generate_sse_stream(
     except RedisUnavailableError:
         logger.error("Redis unavailable during conversation save", extra={"conversation_id": conversation_id})
         yield serialize_sse_event(ChatErrorEvent(error="Failed to save conversation history", code="REDIS_ERROR"))
+    finally:
+        await client.disconnect()
 
 
 async def _cached_sse_stream(

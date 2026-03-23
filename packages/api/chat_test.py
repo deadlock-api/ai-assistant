@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Generator
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +24,9 @@ from packages.integrations.redis_client import RedisUnavailableError
 
 # Module paths for patching
 CHAT_MODULE = "packages.api.chat"
-STREAM_RESPONSE_PATH = f"{CHAT_MODULE}.stream_response"
+DEADLOCK_CLIENT_PATH = f"{CHAT_MODULE}.DeadlockAgentClient"
+GET_AGENT_CONFIG_PATH = f"{CHAT_MODULE}.get_agent_config"
+BUILD_PROMPT_PATH = f"{CHAT_MODULE}._build_prompt_with_history"
 GET_HISTORY_PATH = f"{CHAT_MODULE}.get_conversation_history"
 ADD_MESSAGE_PATH = f"{CHAT_MODULE}.add_message"
 GENERATE_ID_PATH = f"{CHAT_MODULE}.generate_conversation_id"
@@ -56,23 +58,40 @@ def parse_sse_events(response_text: str) -> list[dict[str, Any]]:
     return events
 
 
-async def mock_stream_response_success(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
-    """Mock successful streaming response."""
+def _make_mock_client(send_message_side_effect: Any) -> MagicMock:
+    """Create a mock DeadlockAgentClient with the given send_message behavior.
+
+    Args:
+        send_message_side_effect: A callable (async generator factory) or list of them
+            that will be used as side_effect for send_message.
+
+    Returns:
+        A MagicMock that behaves like DeadlockAgentClient.
+    """
+    mock_client = MagicMock()
+    mock_client.connect = AsyncMock()
+    mock_client.disconnect = AsyncMock()
+    mock_client.send_message = MagicMock(side_effect=send_message_side_effect)
+    return mock_client
+
+
+async def _chunks_success(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+    """Yield a successful response."""
     yield StreamChunk(content="Hello", is_complete=False)
     yield StreamChunk(content=" world!", is_complete=False)
     yield StreamChunk(content="", is_complete=True)
 
 
-async def mock_stream_response_empty(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
-    """Mock empty streaming response."""
+async def _chunks_empty(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+    """Yield an empty response."""
     yield StreamChunk(content="", is_complete=True)
 
 
-def make_mock_stream_empty_then_success(fail_count: int = 1) -> Any:
-    """Create a mock that returns empty responses `fail_count` times, then succeeds."""
+def _make_chunks_empty_then_success(fail_count: int = 1) -> Any:
+    """Create a side_effect that returns empty `fail_count` times, then succeeds."""
     call_count = 0
 
-    async def _mock(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+    async def _side_effect(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
         nonlocal call_count
         call_count += 1
         if call_count <= fail_count:
@@ -81,7 +100,17 @@ def make_mock_stream_empty_then_success(fail_count: int = 1) -> Any:
             yield StreamChunk(content="Recovered!", is_complete=False)
             yield StreamChunk(content="", is_complete=True)
 
-    return _mock
+    return _side_effect
+
+
+def _patch_client(send_message_side_effect: Any) -> Any:
+    """Patch DeadlockAgentClient to return a mock with given send_message behavior."""
+    mock_client = _make_mock_client(send_message_side_effect)
+
+    def _constructor(**kwargs: Any) -> MagicMock:  # noqa: ARG001
+        return mock_client
+
+    return patch(DEADLOCK_CLIENT_PATH, side_effect=_constructor), mock_client
 
 
 @pytest.mark.usefixtures("valid_api_key")
@@ -90,9 +119,10 @@ class TestChatEndpoint:
 
     def test_chat_new_conversation(self, client: TestClient) -> None:
         """Test chat with no conversation_id creates new conversation."""
+        client_patch, mock_agent = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
         ):
             response = client.post(
@@ -124,6 +154,10 @@ class TestChatEndpoint:
             mock_add.assert_any_call("new-conv-id", "user", "Hello")
             mock_add.assert_any_call("new-conv-id", "assistant", "Hello world!")
 
+            # Verify client was connected and disconnected
+            mock_agent.connect.assert_called_once()
+            mock_agent.disconnect.assert_called_once()
+
     def test_chat_existing_conversation(self, client: TestClient) -> None:
         """Test chat with existing conversation_id loads history."""
         history = [
@@ -131,9 +165,10 @@ class TestChatEndpoint:
             ConversationMessage(role="assistant", content="Previous response"),
         ]
 
+        client_patch, mock_agent = _patch_client(_chunks_success)
         with (
             patch(GET_HISTORY_PATH, new_callable=AsyncMock, return_value=history),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success) as mock_stream,
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
         ):
             response = client.post(
@@ -148,19 +183,15 @@ class TestChatEndpoint:
             assert events[0]["event"] == "start"
             assert events[0]["conversation_id"] == "existing-id"
 
-            # Verify history was passed to stream_response
-            call_args = mock_stream.call_args
-            assert call_args[0][0] == "New message"
-            assert call_args[1]["conversation_history"] == [
-                {"role": "user", "content": "Previous message"},
-                {"role": "assistant", "content": "Previous response"},
-            ]
+            # Verify send_message was called (first call is the user message with history)
+            mock_agent.send_message.assert_called_once()
 
     def test_chat_conversation_not_found_starts_fresh(self, client: TestClient) -> None:
         """Test chat with non-existent conversation_id starts fresh."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GET_HISTORY_PATH, new_callable=AsyncMock, side_effect=ConversationNotFoundError("Not found")),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success) as mock_stream,
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
         ):
             response = client.post(
@@ -174,10 +205,6 @@ class TestChatEndpoint:
             events = parse_sse_events(response.text)
             assert events[0]["event"] == "start"
             assert events[0]["conversation_id"] == "unknown-id"
-
-            # Verify empty history was passed
-            call_args = mock_stream.call_args
-            assert call_args[1]["conversation_history"] == []
 
     def test_chat_redis_unavailable_on_load(self, client: TestClient) -> None:
         """Test chat returns error when Redis unavailable during history load."""
@@ -198,9 +225,10 @@ class TestChatEndpoint:
 
     def test_chat_redis_unavailable_on_save(self, client: TestClient) -> None:
         """Test chat returns error when Redis unavailable during save."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock, side_effect=RedisUnavailableError("Connection failed")),
         ):
             response = client.post(
@@ -234,9 +262,10 @@ class TestChatEndpoint:
 
     def test_chat_empty_message(self, client: TestClient) -> None:
         """Test chat with empty message returns error when agent produces no content."""
+        client_patch, _ = _patch_client(_chunks_empty)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_empty),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
         ):
             response = client.post(
@@ -257,9 +286,10 @@ class TestChatEndpoint:
 
     def test_chat_empty_agent_response(self, client: TestClient) -> None:
         """Test that agent returning empty content sends error instead of silent end."""
+        client_patch, _ = _patch_client(_chunks_empty)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_empty),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
         ):
             response = client.post(
@@ -279,11 +309,12 @@ class TestChatEndpoint:
             # Verify no messages were saved to history
             mock_add.assert_not_called()
 
-    def test_chat_empty_response_retries_then_succeeds(self, client: TestClient) -> None:
-        """Test that empty response triggers retry and succeeds on second attempt."""
+    def test_chat_empty_response_nudge_succeeds(self, client: TestClient) -> None:
+        """Test that empty response triggers nudge within same session and succeeds."""
+        client_patch, mock_agent = _patch_client(_make_chunks_empty_then_success(fail_count=1))
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=make_mock_stream_empty_then_success(fail_count=1)),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
         ):
             response = client.post(
@@ -311,6 +342,9 @@ class TestChatEndpoint:
             # Verify messages were saved
             assert mock_add.call_count == 2
 
+            # Verify send_message was called twice: original + nudge (same session)
+            assert mock_agent.send_message.call_count == 2
+
     def test_chat_requires_authentication(self, client: TestClient) -> None:
         """Test chat requires authentication."""
         response = client.post(
@@ -328,13 +362,14 @@ class TestChatAgentErrors:
     def test_chat_agent_configuration_error(self, client: TestClient) -> None:
         """Test chat handles agent configuration errors."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentConfigurationError("ANTHROPIC_API_KEY not set")
             yield  # Make this an async generator
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -352,13 +387,14 @@ class TestChatAgentErrors:
     def test_chat_agent_timeout_error(self, client: TestClient) -> None:
         """Test chat handles agent timeout errors."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentTimeoutError("Request timed out")
             yield
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -373,13 +409,14 @@ class TestChatAgentErrors:
     def test_chat_agent_auth_error(self, client: TestClient) -> None:
         """Test chat handles agent auth errors."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentAuthError("Invalid API key")
             yield
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -394,13 +431,14 @@ class TestChatAgentErrors:
     def test_chat_agent_rate_limit_error(self, client: TestClient) -> None:
         """Test chat handles agent rate limit errors."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentRateLimitError("Rate limit exceeded")
             yield
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -415,13 +453,14 @@ class TestChatAgentErrors:
     def test_chat_agent_retry_exhausted_error(self, client: TestClient) -> None:
         """Test chat handles agent retry exhausted errors."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentRetryExhaustedError("All retries failed")
             yield
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -440,9 +479,10 @@ class TestChatRequestValidation:
 
     def test_chat_accepts_valid_request(self, client: TestClient) -> None:
         """Test chat accepts valid request with all fields."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GET_HISTORY_PATH, new_callable=AsyncMock, return_value=[]),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
         ):
             response = client.post(
@@ -455,9 +495,10 @@ class TestChatRequestValidation:
 
     def test_chat_accepts_null_conversation_id(self, client: TestClient) -> None:
         """Test chat accepts null conversation_id."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
         ):
             response = client.post(
@@ -507,11 +548,12 @@ class TestChatSSECaching:
             'data: {"event":"end","conversation_id":"cached-id"}\n\n',
         ]
 
+        client_patch, mock_agent = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
             patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=cached_events),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success) as mock_stream,
+            client_patch,
         ):
             response = client.post(
                 "/chat",
@@ -529,16 +571,17 @@ class TestChatSSECaching:
             assert events[1]["content"] == "Cached response"
             assert events[2]["event"] == "end"
 
-            # stream_response should not be called when cache hits
-            mock_stream.assert_not_called()
+            # Agent should not be used when cache hits
+            mock_agent.connect.assert_not_called()
 
     def test_cache_miss_generates_and_caches(self, client: TestClient) -> None:
         """Test that cache misses generate response and cache it."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
             patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
             patch(CACHE_STREAM_PATH, new_callable=AsyncMock) as mock_cache,
         ):
@@ -563,11 +606,12 @@ class TestChatSSECaching:
 
     def test_cache_lookup_failure_proceeds_without_cache(self, client: TestClient) -> None:
         """Test that cache lookup failure doesn't break the request."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
             patch(GET_CACHED_PATH, new_callable=AsyncMock, side_effect=RedisUnavailableError("Connection failed")),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
             patch(CACHE_STREAM_PATH, new_callable=AsyncMock),
         ):
@@ -585,11 +629,12 @@ class TestChatSSECaching:
 
     def test_cache_save_failure_does_not_affect_response(self, client: TestClient) -> None:
         """Test that cache save failure doesn't affect the response."""
+        client_patch, _ = _patch_client(_chunks_success)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
             patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_success),
+            client_patch,
             patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
             patch(CACHE_STREAM_PATH, new_callable=AsyncMock, side_effect=RedisUnavailableError("Connection failed")),
         ):
@@ -609,15 +654,16 @@ class TestChatSSECaching:
     def test_error_responses_are_not_cached(self, client: TestClient) -> None:
         """Test that error responses are not cached."""
 
-        async def mock_error(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        async def mock_error(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
             raise AgentConfigurationError("ANTHROPIC_API_KEY not set")
             yield
 
+        client_patch, _ = _patch_client(mock_error)
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(GENERATE_CACHE_KEY_PATH, return_value="sse_cache:test"),
             patch(GET_CACHED_PATH, new_callable=AsyncMock, return_value=None),
-            patch(STREAM_RESPONSE_PATH, side_effect=mock_error),
+            client_patch,
             patch(CACHE_STREAM_PATH, new_callable=AsyncMock) as mock_cache,
         ):
             response = client.post(
