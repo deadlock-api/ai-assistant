@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
@@ -62,11 +63,18 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
 
 
+@dataclass
+class _StreamResult:
+    """Mutable container to capture the accumulated response content from a stream."""
+
+    content: str = ""
+
+
 def _drain_tool_events(
     tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent | None],
-    events: list[str],
-) -> None:
-    """Drain pending tool/usage events from the queue into the events list."""
+) -> list[str]:
+    """Drain pending tool/usage events from the queue and return them as serialized SSE strings."""
+    events: list[str] = []
     while not tool_event_queue.empty():
         try:
             tool_event = tool_event_queue.get_nowait()
@@ -74,35 +82,41 @@ def _drain_tool_events(
                 events.append(serialize_sse_event(tool_event))
         except asyncio.QueueEmpty:
             break
+    return events
 
 
-async def _collect_client_response(
+async def _stream_client_response(
     client: DeadlockAgentClient,
     message: str,
     tool_event_queue: asyncio.Queue[ChatToolStartEvent | ChatToolEndEvent | ChatUsageEvent | None],
-) -> tuple[str, list[str]]:
-    """Send a message to an existing client and collect response content and SSE events.
+    result: _StreamResult,
+) -> AsyncIterator[str]:
+    """Send a message and yield SSE events as they arrive (truly streaming).
+
+    Tool start/end events and text deltas are yielded immediately so the
+    client sees progress in real time.
 
     Args:
         client: The connected DeadlockAgentClient.
         message: The message to send.
         tool_event_queue: Queue for tool/usage events from SSE callback.
+        result: Mutable container where accumulated text content is stored.
 
-    Returns:
-        Tuple of (response_content, list of SSE event strings for deltas and tool events).
+    Yields:
+        Serialized SSE event strings.
     """
-    events: list[str] = []
-    response_content = ""
-
     async for chunk in client.send_message(message):
-        _drain_tool_events(tool_event_queue, events)
+        # Yield any tool events that arrived while waiting for this chunk
+        for event_str in _drain_tool_events(tool_event_queue):
+            yield event_str
 
         if chunk.content:
-            response_content += chunk.content
-            events.append(serialize_sse_event(ChatDeltaEvent(content=chunk.content)))
+            result.content += chunk.content
+            yield serialize_sse_event(ChatDeltaEvent(content=chunk.content))
 
-    _drain_tool_events(tool_event_queue, events)
-    return response_content, events
+    # Drain remaining tool events after the stream ends
+    for event_str in _drain_tool_events(tool_event_queue):
+        yield event_str
 
 
 NUDGE_MESSAGE = (
@@ -163,12 +177,13 @@ async def _generate_sse_stream(
         # Build full prompt with history (same as stream_response does)
         full_prompt = _build_prompt_with_history(message, history)
 
-        # First attempt: send the actual user message
-        response_content, events = await _collect_client_response(client, full_prompt, tool_event_queue)
-
-        for event_str in events:
+        # First attempt: send the actual user message, streaming events in real time
+        result = _StreamResult()
+        async for event_str in _stream_client_response(client, full_prompt, tool_event_queue, result):
             collect(event_str)
             yield event_str
+
+        response_content = result.content
 
         # If we got content on the first try, we're done
         if not response_content.strip():
@@ -188,12 +203,12 @@ async def _generate_sse_stream(
                 yield retry_event
 
                 # Send nudge within the SAME session — model still has tool results in context
-                response_content, events = await _collect_client_response(client, NUDGE_MESSAGE, tool_event_queue)
-
-                for event_str in events:
+                result = _StreamResult()
+                async for event_str in _stream_client_response(client, NUDGE_MESSAGE, tool_event_queue, result):
                     collect(event_str)
                     yield event_str
 
+                response_content = result.content
                 if response_content.strip():
                     break
             else:
