@@ -68,6 +68,22 @@ async def mock_stream_response_empty(*args: Any, **kwargs: Any) -> AsyncIterator
     yield StreamChunk(content="", is_complete=True)
 
 
+def make_mock_stream_empty_then_success(fail_count: int = 1) -> Any:
+    """Create a mock that returns empty responses `fail_count` times, then succeeds."""
+    call_count = 0
+
+    async def _mock(*args: Any, **kwargs: Any) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+        nonlocal call_count
+        call_count += 1
+        if call_count <= fail_count:
+            yield StreamChunk(content="", is_complete=True)
+        else:
+            yield StreamChunk(content="Recovered!", is_complete=False)
+            yield StreamChunk(content="", is_complete=True)
+
+    return _mock
+
+
 @pytest.mark.usefixtures("valid_api_key")
 class TestChatEndpoint:
     """Tests for POST /chat endpoint."""
@@ -262,6 +278,38 @@ class TestChatEndpoint:
 
             # Verify no messages were saved to history
             mock_add.assert_not_called()
+
+    def test_chat_empty_response_retries_then_succeeds(self, client: TestClient) -> None:
+        """Test that empty response triggers retry and succeeds on second attempt."""
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(STREAM_RESPONSE_PATH, side_effect=make_mock_stream_empty_then_success(fail_count=1)),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "test retry"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[0]["event"] == "start"
+
+            # Should have a retry notification delta
+            retry_events = [e for e in events if e.get("event") == "delta" and "Retrying" in e.get("content", "")]
+            assert len(retry_events) == 1
+
+            # Should end successfully with the recovered content
+            assert events[-1]["event"] == "end"
+
+            # Content deltas should include the recovered response
+            content_events = [e for e in events if e.get("event") == "delta" and "Recovered" in e.get("content", "")]
+            assert len(content_events) == 1
+
+            # Verify messages were saved
+            assert mock_add.call_count == 2
 
     def test_chat_requires_authentication(self, client: TestClient) -> None:
         """Test chat requires authentication."""
