@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from claude_agent_sdk._errors import CLIConnectionError, CLINotFoundError, ProcessError
-from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock
+from claude_agent_sdk.types import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
 
 from packages.ai_assistant.agent import (
     DEFAULT_BACKOFF_MULTIPLIER,
@@ -303,6 +303,86 @@ class TestDeadlockAgentClient:
             async with DeadlockAgentClient() as client:
                 await client.interrupt()
                 mock_client.interrupt.assert_called_once()
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_tool_use_emits_empty_chunk_for_event_draining(self) -> None:
+        """ToolUseBlock produces an empty StreamChunk so callers can drain queued tool events.
+
+        Without this, tool start/end SSE events pile up in the queue and only
+        flush when the first text chunk arrives — making all tool events appear
+        at the very end instead of in real time.
+        """
+        # Simulate: model thinks, calls a tool, then responds with text
+        tool_use_message = AssistantMessage(
+            content=[ToolUseBlock(id="tool_1", name="wiki_search", input={"query": "Abrams"})],
+            model="claude-3-sonnet",
+        )
+        text_message = AssistantMessage(
+            content=[TextBlock(text="Here are the results.")],
+            model="claude-3-sonnet",
+        )
+        result_message = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=2,
+            session_id="test-session",
+        )
+
+        mock_client = create_mock_client([tool_use_message, text_message, result_message])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            async with DeadlockAgentClient() as client:
+                chunks = []
+                async for chunk in client.send_message("Search for Abrams"):
+                    chunks.append(chunk)
+
+        # Should have 3 chunks:
+        # 1. Empty chunk from ToolUseBlock (draining opportunity)
+        # 2. Text chunk "Here are the results."
+        # 3. Empty completion chunk from ResultMessage
+        assert len(chunks) == 3
+        assert chunks[0].content == ""
+        assert not chunks[0].is_complete  # Not a completion marker
+        assert chunks[1].content == "Here are the results."
+        assert not chunks[1].is_complete
+        assert chunks[2].content == ""
+        assert chunks[2].is_complete
+
+    @pytest.mark.usefixtures("mock_env_with_api_key")
+    async def test_multiple_tool_uses_emit_one_chunk_each(self) -> None:
+        """Each ToolUseBlock in a single message produces its own empty chunk."""
+        multi_tool_message = AssistantMessage(
+            content=[
+                ToolUseBlock(id="tool_1", name="get_hero_mapping", input={}),
+                ToolUseBlock(id="tool_2", name="deadlock_api_call", input={"path": "/stats"}),
+            ],
+            model="claude-3-sonnet",
+        )
+        result_message = ResultMessage(
+            subtype="success",
+            duration_ms=100,
+            duration_api_ms=80,
+            is_error=False,
+            num_turns=1,
+            session_id="test-session",
+        )
+
+        mock_client = create_mock_client([multi_tool_message, result_message])
+
+        with patch(CLIENT_PATH, return_value=mock_client):
+            async with DeadlockAgentClient() as client:
+                chunks = []
+                async for chunk in client.send_message("Get hero stats"):
+                    chunks.append(chunk)
+
+        # 2 empty chunks (one per tool use) + 1 completion chunk
+        assert len(chunks) == 3
+        assert all(c.content == "" for c in chunks)
+        assert not chunks[0].is_complete
+        assert not chunks[1].is_complete
+        assert chunks[2].is_complete
 
 
 class TestStreamResponse:
