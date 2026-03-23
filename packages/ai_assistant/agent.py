@@ -711,10 +711,10 @@ class DeadlockAgentClient:
                 if isinstance(block, TextBlock):
                     chunks.append(StreamChunk(content=block.text, is_complete=False))
                 elif isinstance(block, ToolUseBlock):
-                    # Emit tool start event via SSE callback
-                    # Note: The actual tool execution and end events are handled
-                    # by the tool itself via the registry's SSE callback
-                    pass
+                    # Yield an empty chunk so the caller can drain queued tool
+                    # events between SDK turns (tool start/end events are emitted
+                    # by BaseTool.execute via the registry's SSE callback).
+                    chunks.append(StreamChunk(content="", is_complete=False))
         elif isinstance(msg, ResultMessage):
             # Extract token usage data if available
             usage = getattr(msg, "usage", None)
