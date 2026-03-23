@@ -217,11 +217,11 @@ class TestChatEndpoint:
         assert "request_id" in data
 
     def test_chat_empty_message(self, client: TestClient) -> None:
-        """Test chat with empty message still processes."""
+        """Test chat with empty message returns error when agent produces no content."""
         with (
             patch(GENERATE_ID_PATH, return_value="new-conv-id"),
             patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_empty),
-            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
         ):
             response = client.post(
                 "/chat",
@@ -233,7 +233,35 @@ class TestChatEndpoint:
 
             events = parse_sse_events(response.text)
             assert events[0]["event"] == "start"
-            assert events[-1]["event"] == "end"
+            assert events[-1]["event"] == "error"
+            assert events[-1]["code"] == "EMPTY_RESPONSE"
+
+            # Verify no messages were saved to history
+            mock_add.assert_not_called()
+
+    def test_chat_empty_agent_response(self, client: TestClient) -> None:
+        """Test that agent returning empty content sends error instead of silent end."""
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            patch(STREAM_RESPONSE_PATH, side_effect=mock_stream_response_empty),
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock) as mock_add,
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "Are there hero stats for weak lane?"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+
+            events = parse_sse_events(response.text)
+            assert events[0]["event"] == "start"
+            assert events[-1]["event"] == "error"
+            assert events[-1]["code"] == "EMPTY_RESPONSE"
+            assert "unable to generate a response" in events[-1]["error"]
+
+            # Verify no messages were saved to history
+            mock_add.assert_not_called()
 
     def test_chat_requires_authentication(self, client: TestClient) -> None:
         """Test chat requires authentication."""

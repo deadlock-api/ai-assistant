@@ -140,6 +140,20 @@ async def _generate_sse_stream(
             except asyncio.QueueEmpty:
                 break
 
+        # Detect empty response (model returned no text content)
+        if not response_content.strip():
+            logger.warning(
+                "Agent returned empty response",
+                extra={"conversation_id": conversation_id, "user_message": message[:200]},
+            )
+            yield serialize_sse_event(
+                ChatErrorEvent(
+                    error="The assistant was unable to generate a response. Please try again.",
+                    code="EMPTY_RESPONSE",
+                )
+            )
+            return
+
         # Save user message and assistant response to history
         await add_message(conversation_id, "user", message)
         await add_message(conversation_id, "assistant", response_content)
