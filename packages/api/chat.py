@@ -85,6 +85,13 @@ def _drain_tool_events(
     return events
 
 
+SSE_KEEPALIVE_COMMENT = ": keepalive\n\n"
+
+# Interval in seconds between keepalive comments to prevent proxy/CDN timeouts.
+# Cloudflare and similar proxies may close idle SSE connections after ~100s.
+SSE_KEEPALIVE_INTERVAL = 15
+
+
 async def _stream_client_response(
     client: DeadlockAgentClient,
     message: str,
@@ -94,7 +101,9 @@ async def _stream_client_response(
     """Send a message and yield SSE events as they arrive (truly streaming).
 
     Tool start/end events and text deltas are yielded immediately so the
-    client sees progress in real time.
+    client sees progress in real time.  SSE keepalive comments are sent
+    every ``SSE_KEEPALIVE_INTERVAL`` seconds to prevent intermediate
+    proxies (e.g. Cloudflare HTTP/3) from closing the connection.
 
     Args:
         client: The connected DeadlockAgentClient.
@@ -105,7 +114,21 @@ async def _stream_client_response(
     Yields:
         Serialized SSE event strings.
     """
-    async for chunk in client.send_message(message):
+    chunk_iter = client.send_message(message).__aiter__()
+
+    while True:
+        try:
+            chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=SSE_KEEPALIVE_INTERVAL)
+        except TimeoutError:
+            # No data for a while — send keepalive to keep connection alive
+            # Also drain tool events that may have arrived
+            for event_str in _drain_tool_events(tool_event_queue):
+                yield event_str
+            yield SSE_KEEPALIVE_COMMENT
+            continue
+        except StopAsyncIteration:
+            break
+
         # Yield any tool events that arrived while waiting for this chunk
         for event_str in _drain_tool_events(tool_event_queue):
             yield event_str
@@ -358,4 +381,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     return StreamingResponse(
         _cached_sse_stream(request.message, conversation_id, history, cache_key),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
