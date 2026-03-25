@@ -462,8 +462,10 @@ class DeadlockAgentClient:
 
     async def _create_options(self) -> ClaudeAgentOptions:
         """Create ClaudeAgentOptions from config."""
-        # Explicitly disallow file system tools for security
+        # Explicitly disallow built-in SDK tools for security and to prevent
+        # the model from prematurely stopping via TaskStop or using filesystem tools.
         disallowed_tools = [
+            # Filesystem tools
             "Read",
             "Write",
             "Edit",
@@ -471,7 +473,27 @@ class DeadlockAgentClient:
             "Glob",
             "Grep",
             "NotebookEdit",
+            # Task tools — "Task" alone doesn't match individual variants
             "Task",
+            "TaskCreate",
+            "TaskStop",
+            "TaskGet",
+            "TaskList",
+            "TaskOutput",
+            "TaskUpdate",
+            # Other built-in tools the agent should not use
+            "WebSearch",
+            "WebFetch",
+            "Agent",
+            "SendMessage",
+            "AskUserQuestion",
+            "EnterPlanMode",
+            "ExitPlanMode",
+            "EnterWorktree",
+            "ExitWorktree",
+            "LSP",
+            "TeamCreate",
+            "TeamDelete",
         ]
 
         options_kwargs: dict[str, Any] = {
