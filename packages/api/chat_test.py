@@ -345,6 +345,51 @@ class TestChatEndpoint:
             # Verify send_message was called twice: original + nudge (same session)
             assert mock_agent.send_message.call_count == 2
 
+    def test_chat_stream_survives_slow_chunks(self, client: TestClient) -> None:
+        """Test that the stream survives when a chunk takes longer than the keepalive interval.
+
+        Regression test: asyncio.wait_for was used to implement keepalives,
+        but it cancels the underlying async generator on timeout — killing
+        the stream during long-running tool calls.  The fix uses
+        asyncio.wait() which does NOT cancel the generator.
+        """
+
+        async def _slow_chunks(message: str) -> AsyncIterator[StreamChunk]:  # noqa: ARG001
+            import asyncio as _asyncio
+
+            yield StreamChunk(content="Before tool", is_complete=False)
+            # Simulate a tool call that takes longer than SSE_KEEPALIVE_INTERVAL
+            await _asyncio.sleep(0.15)
+            yield StreamChunk(content=" After tool", is_complete=False)
+            yield StreamChunk(content="", is_complete=True)
+
+        client_patch, _ = _patch_client(_slow_chunks)
+        with (
+            patch(GENERATE_ID_PATH, return_value="new-conv-id"),
+            client_patch,
+            patch(ADD_MESSAGE_PATH, new_callable=AsyncMock),
+            # Set keepalive to a very short interval so the timeout fires during the sleep
+            patch("packages.api.chat.SSE_KEEPALIVE_INTERVAL", 0.05),
+        ):
+            response = client.post(
+                "/chat",
+                json={"message": "test slow tool"},
+                headers={"X-API-Key": "test-key"},
+            )
+
+            assert response.status_code == 200
+            events = parse_sse_events(response.text)
+
+            # Should have: start, "Before tool", "After tool", end
+            # (plus possible keepalive comments which are filtered by parse_sse_events)
+            event_types = [e["event"] for e in events]
+            assert event_types[0] == "start"
+            assert event_types[-1] == "end"
+
+            # Both content chunks must be present — the slow gap must not kill the stream
+            content = "".join(e["content"] for e in events if e.get("event") == "delta")
+            assert content == "Before tool After tool"
+
     def test_chat_requires_authentication(self, client: TestClient) -> None:
         """Test chat requires authentication."""
         response = client.post(

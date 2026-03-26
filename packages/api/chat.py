@@ -20,6 +20,7 @@ from packages.ai_assistant.agent import (
     AgentRetryExhaustedError,
     AgentTimeoutError,
     DeadlockAgentClient,
+    StreamChunk,
     _build_prompt_with_history,
     get_agent_config,
 )
@@ -92,6 +93,21 @@ SSE_KEEPALIVE_COMMENT = ": keepalive\n\n"
 SSE_KEEPALIVE_INTERVAL = 15
 
 
+async def _anext_task(aiter: AsyncIterator[StreamChunk]) -> StreamChunk | None:
+    """Await the next item from an async iterator, returning ``None`` on exhaustion.
+
+    Wraps ``StopAsyncIteration`` so it doesn't leak across ``await`` boundaries
+    (which would become a ``RuntimeError`` in Python 3.7+).
+    """
+    try:
+        return await aiter.__anext__()
+    except StopAsyncIteration:
+        return None
+
+
+_STREAM_EXHAUSTED = StreamChunk(content="", is_complete=True)
+
+
 async def _stream_client_response(
     client: DeadlockAgentClient,
     message: str,
@@ -105,6 +121,12 @@ async def _stream_client_response(
     every ``SSE_KEEPALIVE_INTERVAL`` seconds to prevent intermediate
     proxies (e.g. Cloudflare HTTP/3) from closing the connection.
 
+    Uses ``asyncio.wait`` with a timeout instead of ``asyncio.wait_for``
+    so that the underlying async generator is **not** cancelled when the
+    keepalive fires.  ``wait_for`` would throw ``CancelledError`` into
+    the generator chain, permanently closing it — causing the stream to
+    die silently when a tool call takes longer than the keepalive interval.
+
     Args:
         client: The connected DeadlockAgentClient.
         message: The message to send.
@@ -117,16 +139,27 @@ async def _stream_client_response(
     chunk_iter = client.send_message(message).__aiter__()
 
     while True:
+        # Wrap __anext__ in a task so we can wait with timeout without
+        # cancelling the generator on keepalive timeouts.
+        task = asyncio.ensure_future(_anext_task(chunk_iter))
+
         try:
-            chunk = await asyncio.wait_for(chunk_iter.__anext__(), timeout=SSE_KEEPALIVE_INTERVAL)
-        except TimeoutError:
-            # No data for a while — send keepalive to keep connection alive
-            # Also drain tool events that may have arrived
-            for event_str in _drain_tool_events(tool_event_queue):
-                yield event_str
-            yield SSE_KEEPALIVE_COMMENT
-            continue
-        except StopAsyncIteration:
+            # Loop: wait for the chunk, sending keepalives while it's pending
+            while not task.done():
+                done, _ = await asyncio.wait({task}, timeout=SSE_KEEPALIVE_INTERVAL)
+                if not done:
+                    # Keepalive timeout — drain tool events and send comment
+                    for event_str in _drain_tool_events(tool_event_queue):
+                        yield event_str
+                    yield SSE_KEEPALIVE_COMMENT
+
+            chunk = task.result()
+        except BaseException:
+            task.cancel()
+            raise
+
+        # None means the iterator is exhausted
+        if chunk is None:
             break
 
         # Yield any tool events that arrived while waiting for this chunk
