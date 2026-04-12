@@ -56,6 +56,22 @@ router = APIRouter()
 # Maximum number of retries when the agent returns empty content
 MAX_EMPTY_RESPONSE_RETRIES = 2
 
+# Track active agent clients so they can be disconnected on shutdown.
+_active_clients: set[DeadlockAgentClient] = set()
+
+
+async def shutdown_active_clients() -> None:
+    """Disconnect all active agent clients. Called during app shutdown."""
+    if not _active_clients:
+        return
+    clients = list(_active_clients)
+    _active_clients.clear()
+    logger.info("Shutting down %d active agent client(s)", len(clients))
+    results = await asyncio.gather(*(c.disconnect() for c in clients), return_exceptions=True)
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("Error disconnecting client during shutdown: %s", result)
+
 
 class ChatRequest(BaseModel):
     """Request body for the chat endpoint."""
@@ -226,6 +242,7 @@ async def _generate_sse_stream(
     tool_registry = ToolRegistry(sse_callback=sse_callback)
     config = get_agent_config()
     client = DeadlockAgentClient(config=config, tool_registry=tool_registry, sse_callback=sse_callback)
+    _active_clients.add(client)
 
     try:
         await client.connect()
@@ -316,7 +333,12 @@ async def _generate_sse_stream(
         logger.error("Redis unavailable during conversation save", extra={"conversation_id": conversation_id})
         yield serialize_sse_event(ChatErrorEvent(error="Failed to save conversation history", code="REDIS_ERROR"))
     finally:
-        await client.disconnect()
+        _active_clients.discard(client)
+        # Shield disconnect from task cancellation so the Claude subprocess
+        # is always terminated, even when the HTTP client disconnects and
+        # the ASGI server cancels this task (CancelledError at every await).
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(client.disconnect())
 
 
 async def _cached_sse_stream(

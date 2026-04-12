@@ -11,6 +11,7 @@ from packages.ai_assistant.tracing import configure_tracing, flush_traces
 from packages.api.auth import APIKeyAuthMiddleware
 from packages.api.auth_patreon import router as patreon_auth_router
 from packages.api.chat import router as chat_router
+from packages.api.chat import shutdown_active_clients
 from packages.api.errors import RequestIDMiddleware, register_exception_handlers
 from packages.api.health import router as health_router
 from packages.api.logging import RequestLoggingMiddleware, configure_logging
@@ -40,6 +41,8 @@ async def lifespan(_app: FastAPI):
     # Startup: Configure Langfuse tracing
     configure_tracing()
     yield
+    # Shutdown: Disconnect any active agent clients (leaked subprocesses)
+    await shutdown_active_clients()
     # Shutdown: Flush pending traces
     flush_traces()
 
